@@ -1,0 +1,82 @@
+/**
+ * Top-level route registration. Each domain mounts its own Router under a
+ * stable URL prefix; the createApp() factory consumes this single function.
+ */
+import type { Application } from 'express';
+import authRouter from './auth';
+import portalAuthRouter from './portal-auth';
+import rbacRouter from './rbac';
+import modulesRouter from './modules';
+import workflowsRouter from './workflows';
+import auditRouter from './audit';
+import usersRouter from './users';
+import organizationRouter from './organization';
+import branchesRouter from './branches';
+import departmentsRouter from './departments';
+import designationsRouter from './designations';
+import locationsRouter from './locations';
+import rolesRouter from './roles';
+import permissionsRouter from './permissions';
+import documentsRouter from './documents';
+import fieldVisibilityRouter from './field-visibility';
+import customFieldsRouter from './custom-fields';
+import fieldConfigRouter from './field-config';
+import emailProvidersRouter from './email-providers';
+import emailTemplatesRouter from './email-templates';
+import smsProvidersRouter from './sms-providers';
+import smsTemplatesRouter from './sms-templates';
+import whatsappProvidersRouter from './whatsapp-providers';
+import whatsappTemplatesRouter from './whatsapp-templates';
+import whatsappWebhookRouter from './whatsapp-webhook';
+import notificationsRouter from './notifications';
+import adminNotificationsRouter from './admin-notifications';
+import oauthRouter from './oauth';
+import dpdpRouter from './dpdp';
+import paymentsRouter from './payments';
+import paymentWebhookRouter from './payment-webhook';
+import adminPaymentsRouter from './admin-payments';
+import adminCustomersRouter from './admin-customers';
+import publicSignupRouter from './public-signup';
+import portalUsersRouter from './portal-users';
+import adminNumberingRouter from './admin-numbering';
+import adminSettingsRouter from './admin-settings';
+
+export function registerRoutes(app: Application): void {
+  app.use('/api/auth', authRouter);
+  app.use('/api/portal/auth', portalAuthRouter);
+  app.use('/api/rbac', rbacRouter);
+  app.use('/api/modules', modulesRouter);
+  app.use('/api/workflows', workflowsRouter);
+  app.use('/api/audit', auditRouter);
+  app.use('/api/users', usersRouter);
+  app.use('/api/organization', organizationRouter);
+  app.use('/api/branches', branchesRouter);
+  app.use('/api/departments', departmentsRouter);
+  app.use('/api/designations', designationsRouter);
+  app.use('/api/locations', locationsRouter);
+  app.use('/api/roles', rolesRouter);
+  app.use('/api/permissions', permissionsRouter);
+  app.use('/api/documents', documentsRouter);
+  app.use('/api/admin/field-visibility', fieldVisibilityRouter);
+  app.use('/api/admin/custom-fields', customFieldsRouter);
+  app.use('/api/entities', fieldConfigRouter);
+  app.use('/api/admin/email-providers', emailProvidersRouter);
+  app.use('/api/admin/email-templates', emailTemplatesRouter);
+  app.use('/api/admin/sms-providers', smsProvidersRouter);
+  app.use('/api/admin/sms-templates', smsTemplatesRouter);
+  app.use('/api/admin/whatsapp-providers', whatsappProvidersRouter);
+  app.use('/api/admin/whatsapp-templates', whatsappTemplatesRouter);
+  app.use('/api/webhooks/whatsapp', whatsappWebhookRouter);
+  app.use('/api/notifications', notificationsRouter);
+  app.use('/api/admin/notifications', adminNotificationsRouter);
+  app.use('/api/auth/oauth', oauthRouter);
+  app.use('/api/dpdp', dpdpRouter);
+  app.use('/api/payments', paymentsRouter);
+  app.use('/api/webhooks', paymentWebhookRouter);
+  app.use('/api/admin', adminPaymentsRouter);
+  app.use('/api/admin', adminCustomersRouter);
+  app.use('/api/public', publicSignupRouter);
+  app.use('/api/portal', portalUsersRouter);
+  app.use('/api/admin', adminNumberingRouter);
+  app.use('/api/admin', adminSettingsRouter);
+}

@@ -1,0 +1,1323 @@
+// Prisma schema for the Modular Furniture ERP backend — P0-04.
+//
+// All Phase 0 tables live in the `core` Postgres schema. The full table set
+// per /specs/PROMPTS_P0.md Part 2:
+//   Identity & Access (12)   Organization (5)        RBAC (8)
+//   Modules & Workflow (7)   Audit & Compliance (5)  Communication (6)
+//   Customer Portal (4)      Payment (3)             Docs/Numbering/Settings (3)
+//   = 53 tables. (The spec header says "52" but Part 2 enumerates 53 — the
+//   "Modules & Workflow (6)" sub-header lists 7 items; a counting bug in the
+//   spec, not a missing table. We implement all 53.)
+//
+// Conventions:
+//   - Models in PascalCase, mapped to snake_case tables via @@map.
+//   - Fields in camelCase, mapped to snake_case columns via @map.
+//   - Every model declares @@schema("core").
+//   - Audit columns: createdAt / updatedAt always; createdById / updatedById
+//     where the spec calls for them. Note: createdBy/updatedBy are stored as
+//     plain UUID columns (no Prisma relations) to avoid back-reference
+//     explosion on the User model.
+//   - Soft delete (isDeleted / deletedAt / deletedById) only on User,
+//     CustomerAccount, Organization, Branch as per spec §5.
+//   - // @encrypted marks columns whose values are app-level encrypted at
+//     write time (encryption helpers land in P0-19).
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["core"]
+}
+
+// =============================================================================
+// SECTION 1 — Identity & Access (12 tables)
+// =============================================================================
+
+/// Internal employees + admins. Customer-side users live in CustomerUser.
+model User {
+  id                          String    @id @default(uuid())
+  employeeCode                String?   @unique @map("employee_code")
+  email                       String    @unique
+  phone                       String?
+  firstName                   String    @map("first_name")
+  lastName                    String    @map("last_name")
+  passwordHash                String    @map("password_hash") // @encrypted (bcrypt-hashed; here for completeness)
+  passwordChangedAt           DateTime? @map("password_changed_at")
+  mustChangePassword          Boolean   @default(false) @map("must_change_password")
+
+  userType                    String    @default("internal") @map("user_type") // internal | external
+
+  branchId                    String?   @map("branch_id")
+  departmentId                String?   @map("department_id")
+  designationId               String?   @map("designation_id")
+
+  isActive                    Boolean   @default(true) @map("is_active")
+  isLocked                    Boolean   @default(false) @map("is_locked")
+  lockedUntil                 DateTime? @map("locked_until")
+  lastLoginAt                 DateTime? @map("last_login_at")
+
+  communicationPreferences    Json?     @map("communication_preferences") // { email, sms, whatsapp, inApp }
+
+  twoFactorEnabled            Boolean   @default(false) @map("two_factor_enabled")
+  twoFactorSecretEncrypted    String?   @map("two_factor_secret_encrypted") // @encrypted
+  backupCodesEncrypted        String?   @map("backup_codes_encrypted")      // @encrypted
+
+  // Audit
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
+  createdById                 String?   @map("created_by_id")
+  updatedById                 String?   @map("updated_by_id")
+  // Soft delete
+  isDeleted                   Boolean   @default(false) @map("is_deleted")
+  deletedAt                   DateTime? @map("deleted_at")
+  deletedById                 String?   @map("deleted_by_id")
+
+  // Relations (only those explicitly needed; outbound audit FKs left as plain UUIDs)
+  branch                      Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  department                  Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  designation                 Designation?  @relation(fields: [designationId], references: [id], onDelete: SetNull)
+
+  sessions                    UserSession[]
+  passwordHistory             UserPasswordHistory[]
+  passwordResetTokens         PasswordResetToken[]
+  oauthConnections            OauthConnection[]
+  mfaDevices                  MfaDevice[]
+  mfaRecoveryCodes            MfaRecoveryCode[]
+  userRoles                   UserRole[]
+  permissionOverrides         UserPermissionOverride[]
+  notifications               Notification[]
+  dpdpConsents                DpdpConsent[]
+
+  @@index([branchId])
+  @@index([departmentId])
+  @@index([designationId])
+  @@index([isActive])
+  @@index([isDeleted])
+  @@map("users")
+  @@schema("core")
+}
+
+/// One row per active access token.
+/// Either `userId` (internal user) OR `customerUserId` (customer-portal user)
+/// is set — never both. Application code enforces this; the DB just allows
+/// either FK to be null.
+model UserSession {
+  id                String    @id @default(uuid())
+  userId            String?   @map("user_id")
+  customerUserId    String?   @map("customer_user_id")
+  refreshTokenHash  String    @map("refresh_token_hash")
+  deviceInfo        Json?     @map("device_info")
+  ipAddress         String?   @map("ip_address")
+  userAgent         String?   @map("user_agent")
+  issuedAt          DateTime  @default(now()) @map("issued_at")
+  expiresAt         DateTime  @map("expires_at")
+  revokedAt         DateTime? @map("revoked_at")
+  lastUsedAt        DateTime? @map("last_used_at")
+
+  user              User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerUser      CustomerUser? @relation(fields: [customerUserId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([customerUserId])
+  @@index([refreshTokenHash])
+  @@index([expiresAt])
+  @@map("user_sessions")
+  @@schema("core")
+}
+
+model UserPasswordHistory {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  passwordHash  String   @map("password_hash")
+  setAt         DateTime @default(now()) @map("set_at")
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_password_history")
+  @@schema("core")
+}
+
+/// Either userId or customerUserId is set, never both.
+model PasswordResetToken {
+  id              String    @id @default(uuid())
+  userId          String?   @map("user_id")
+  customerUserId  String?   @map("customer_user_id")
+  tokenHash       String    @map("token_hash")
+  expiresAt       DateTime  @map("expires_at")
+  usedAt          DateTime? @map("used_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  user            User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerUser    CustomerUser? @relation(fields: [customerUserId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([customerUserId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+  @@schema("core")
+}
+
+model OauthProvider {
+  id                      String   @id @default(uuid())
+  providerCode            String   @unique @map("provider_code") // google | microsoft | ...
+  displayName             String   @map("display_name")
+  clientId                String   @map("client_id")
+  clientSecretEncrypted   String   @map("client_secret_encrypted") // @encrypted
+  isActive                Boolean  @default(true) @map("is_active")
+
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  connections             OauthConnection[]
+
+  @@index([isActive])
+  @@map("oauth_providers")
+  @@schema("core")
+}
+
+/// Either a User OR a CustomerUser is connected to an OAuth provider — never both at once.
+model OauthConnection {
+  id                      String    @id @default(uuid())
+  userId                  String?   @map("user_id")
+  customerUserId          String?   @map("customer_user_id")
+  providerId              String    @map("provider_id")
+  providerUserId          String    @map("provider_user_id")
+  accessTokenEncrypted    String?   @map("access_token_encrypted")  // @encrypted
+  refreshTokenEncrypted   String?   @map("refresh_token_encrypted") // @encrypted
+  expiresAt               DateTime? @map("expires_at")
+
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  user                    User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerUser            CustomerUser? @relation(fields: [customerUserId], references: [id], onDelete: Cascade)
+  provider                OauthProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  @@unique([providerId, providerUserId])
+  @@index([userId])
+  @@index([customerUserId])
+  @@map("oauth_connections")
+  @@schema("core")
+}
+
+model MfaDevice {
+  id                  String    @id @default(uuid())
+  userId              String    @map("user_id")
+  deviceName          String    @map("device_name")
+  deviceType          String    @map("device_type") // totp | sms
+  secretEncrypted     String    @map("secret_encrypted") // @encrypted
+  isPrimary           Boolean   @default(false) @map("is_primary")
+  isVerified          Boolean   @default(false) @map("is_verified")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("mfa_devices")
+  @@schema("core")
+}
+
+model MfaRecoveryCode {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("mfa_recovery_codes")
+  @@schema("core")
+}
+
+model LoginAttempt {
+  id          String   @id @default(uuid())
+  identifier  String   // email or username — not unique by design
+  attemptAt   DateTime @default(now()) @map("attempt_at")
+  success     Boolean
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+
+  @@index([identifier])
+  @@index([attemptAt])
+  @@map("login_attempts")
+  @@schema("core")
+}
+
+model IpBlocklist {
+  id            String    @id @default(uuid())
+  ipAddress     String    @map("ip_address")
+  blockedUntil  DateTime  @map("blocked_until")
+  reason        String?
+  blockedAt     DateTime  @default(now()) @map("blocked_at")
+
+  @@index([ipAddress])
+  @@index([blockedUntil])
+  @@map("ip_blocklist")
+  @@schema("core")
+}
+
+model DeviceFingerprint {
+  id              String    @id @default(uuid())
+  userId          String?   @map("user_id")
+  customerUserId  String?   @map("customer_user_id")
+  fingerprint     String
+  userAgent       String?   @map("user_agent")
+  ipAddress       String?   @map("ip_address")
+  firstSeenAt     DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt      DateTime  @default(now()) @map("last_seen_at")
+  isTrusted       Boolean   @default(false) @map("is_trusted")
+
+  @@index([userId])
+  @@index([customerUserId])
+  @@index([fingerprint])
+  @@map("device_fingerprints")
+  @@schema("core")
+}
+
+model SecurityEvent {
+  id            String   @id @default(uuid())
+  eventType     String   @map("event_type")  // login_failure | password_reset | mfa_enrolled | ...
+  severity      String   // info | warning | critical
+  userId        String?  @map("user_id")
+  detailsJson   Json?    @map("details_json")
+  occurredAt    DateTime @default(now()) @map("occurred_at")
+  ipAddress     String?  @map("ip_address")
+
+  @@index([eventType])
+  @@index([severity])
+  @@index([userId])
+  @@index([occurredAt])
+  @@map("security_events")
+  @@schema("core")
+}
+
+// =============================================================================
+// SECTION 2 — Organization (5 tables)
+// =============================================================================
+
+model Organization {
+  id                          String    @id @default(uuid())
+  name                        String
+  legalName                   String?   @map("legal_name")
+  gstin                       String?
+  pan                         String?
+  registeredAddress           Json?     @map("registered_address")
+  billingAddress              Json?     @map("billing_address")
+  logoUrl                     String?   @map("logo_url")
+  primaryEmail                String?   @map("primary_email")
+  primaryPhone                String?   @map("primary_phone")
+  financialYearStartMonth     Int       @default(4) @map("financial_year_start_month") // April for India
+  defaultCurrency             String    @default("INR") @map("default_currency")
+  timezone                    String    @default("Asia/Kolkata")
+  isActive                    Boolean   @default(true) @map("is_active")
+
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
+  createdById                 String?   @map("created_by_id")
+  updatedById                 String?   @map("updated_by_id")
+  isDeleted                   Boolean   @default(false) @map("is_deleted")
+  deletedAt                   DateTime? @map("deleted_at")
+  deletedById                 String?   @map("deleted_by_id")
+
+  branches                    Branch[]
+  departments                 Department[]
+  designations                Designation[]
+  locations                   Location[]
+
+  @@index([isActive])
+  @@index([isDeleted])
+  @@map("organizations")
+  @@schema("core")
+}
+
+model Branch {
+  id              String    @id @default(uuid())
+  organizationId  String    @map("organization_id")
+  branchCode      String    @map("branch_code")
+  name            String
+  branchType      String    @map("branch_type") // head_office | factory | warehouse | showroom
+  gstin           String?
+  addressLine1    String?   @map("address_line1")
+  addressLine2    String?   @map("address_line2")
+  city            String?
+  state           String?
+  postalCode      String?   @map("postal_code")
+  country         String    @default("India")
+  isActive        Boolean   @default(true) @map("is_active")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  createdById     String?   @map("created_by_id")
+  updatedById     String?   @map("updated_by_id")
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+  deletedAt       DateTime? @map("deleted_at")
+  deletedById     String?   @map("deleted_by_id")
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  users           User[]
+  departments     Department[]
+
+  @@unique([organizationId, branchCode])
+  @@index([organizationId])
+  @@index([branchType])
+  @@index([isActive])
+  @@index([isDeleted])
+  @@map("branches")
+  @@schema("core")
+}
+
+model Department {
+  id              String   @id @default(uuid())
+  organizationId  String   @map("organization_id")
+  branchId        String?  @map("branch_id")
+  code            String
+  name            String
+  description     String?
+  parentId        String?  @map("parent_id")
+  isActive        Boolean  @default(true) @map("is_active")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdById     String?  @map("created_by_id")
+  updatedById     String?  @map("updated_by_id")
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch          Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  parent          Department?  @relation("DepartmentHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children        Department[] @relation("DepartmentHierarchy")
+  users           User[]
+  designations    Designation[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([branchId])
+  @@index([parentId])
+  @@index([isActive])
+  @@map("departments")
+  @@schema("core")
+}
+
+model Designation {
+  id              String   @id @default(uuid())
+  organizationId  String   @map("organization_id")
+  departmentId    String?  @map("department_id")
+  code            String
+  name            String
+  level           Int?     // org level (1=highest)
+  isActive        Boolean  @default(true) @map("is_active")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdById     String?  @map("created_by_id")
+  updatedById     String?  @map("updated_by_id")
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  department      Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  users           User[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([departmentId])
+  @@index([isActive])
+  @@map("designations")
+  @@schema("core")
+}
+
+model Location {
+  id              String   @id @default(uuid())
+  organizationId  String   @map("organization_id")
+  code            String
+  name            String
+  locationType    String   @map("location_type") // warehouse | factory | site | other
+  addressLine1    String?  @map("address_line1")
+  city            String?
+  state           String?
+  postalCode      String?  @map("postal_code")
+  country         String   @default("India")
+  isActive        Boolean  @default(true) @map("is_active")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdById     String?  @map("created_by_id")
+  updatedById     String?  @map("updated_by_id")
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([locationType])
+  @@index([isActive])
+  @@map("locations")
+  @@schema("core")
+}
+
+// =============================================================================
+// SECTION 3 — RBAC (8 tables)
+// =============================================================================
+
+model Role {
+  id            String   @id @default(uuid())
+  roleCode      String   @unique @map("role_code")
+  name          String
+  description   String?
+  isSystemRole  Boolean  @default(false) @map("is_system_role")
+  isActive      Boolean  @default(true) @map("is_active")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  createdById   String?  @map("created_by_id")
+  updatedById   String?  @map("updated_by_id")
+
+  rolePermissions   RolePermission[]
+  userRoles         UserRole[]
+  fieldVisibility   FieldVisibilityConfig[]
+  dataAccessRules   DataAccessRule[]
+
+  @@index([isActive])
+  @@map("roles")
+  @@schema("core")
+}
+
+model Permission {
+  id              String   @id @default(uuid())
+  permissionCode  String   @unique @map("permission_code") // e.g., "orders:create"
+  moduleId        String?  @map("module_id")
+  feature         String
+  action          String
+  description     String?
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  module            Module?               @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  rolePermissions   RolePermission[]
+  userOverrides     UserPermissionOverride[]
+
+  @@index([moduleId])
+  @@map("permissions")
+  @@schema("core")
+}
+
+model RolePermission {
+  id            String   @id @default(uuid())
+  roleId        String   @map("role_id")
+  permissionId  String   @map("permission_id")
+  scopeFilter   Json?    @map("scope_filter") // e.g., { branch_id: "..." }
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  createdById   String?  @map("created_by_id")
+
+  role          Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission    Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+  @@schema("core")
+}
+
+model UserRole {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  roleId      String    @map("role_id")
+  assignedById String?  @map("assigned_by_id")
+  assignedAt  DateTime  @default(now()) @map("assigned_at")
+  expiresAt   DateTime? @map("expires_at")
+  isActive    Boolean   @default(true) @map("is_active")
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+  @@index([isActive])
+  @@map("user_roles")
+  @@schema("core")
+}
+
+model UserPermissionOverride {
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  permissionId  String    @map("permission_id")
+  grantType     String    @map("grant_type") // allow | deny
+  reason        String?
+  expiresAt     DateTime? @map("expires_at")
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+  createdById   String?   @map("created_by_id")
+
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission    Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionId])
+  @@index([userId])
+  @@index([permissionId])
+  @@map("user_permission_overrides")
+  @@schema("core")
+}
+
+model FieldVisibilityConfig {
+  id            String   @id @default(uuid())
+  roleId        String   @map("role_id")
+  targetEntity  String   @map("target_entity")
+  fieldCode     String   @map("field_code")
+  visibility    String   // visible | readonly | hidden
+  displayOrder  Int      @default(0) @map("display_order")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  role          Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, targetEntity, fieldCode])
+  @@index([roleId])
+  @@index([targetEntity])
+  @@map("field_visibility_config")
+  @@schema("core")
+}
+
+model DataAccessRule {
+  id            String   @id @default(uuid())
+  roleId        String   @map("role_id")
+  targetEntity  String   @map("target_entity")
+  ruleType      String   @map("rule_type") // own | branch | department | custom
+  ruleExpression Json?   @map("rule_expression")
+  isActive      Boolean  @default(true) @map("is_active")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  role          Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@index([roleId])
+  @@index([targetEntity])
+  @@map("data_access_rules")
+  @@schema("core")
+}
+
+model CustomField {
+  id              String   @id @default(uuid())
+  targetEntity    String   @map("target_entity")
+  fieldCode       String   @map("field_code")
+  label           String
+  fieldType       String   @map("field_type") // string | number | boolean | date | enum | json
+  isRequired      Boolean  @default(false) @map("is_required")
+  optionsJson     Json?    @map("options_json")
+  validationRules Json?    @map("validation_rules")
+  displayOrder    Int      @default(0) @map("display_order")
+  isActive        Boolean  @default(true) @map("is_active")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdById     String?  @map("created_by_id")
+  updatedById     String?  @map("updated_by_id")
+
+  @@unique([targetEntity, fieldCode])
+  @@index([targetEntity])
+  @@index([isActive])
+  @@map("custom_fields")
+  @@schema("core")
+}
+
+// =============================================================================
+// SECTION 4 — Modules & Workflow (7 tables)
+// =============================================================================
+
+model Module {
+  id                String    @id @default(uuid())
+  moduleCode        String    @unique @map("module_code")
+  name              String
+  description       String?
+  category          String?
+  isCore            Boolean   @default(false) @map("is_core")        // cannot be disabled
+  isBypassable      Boolean   @default(false) @map("is_bypassable")  // workflows can skip when off
+  isActive          Boolean   @default(true) @map("is_active")
+  activatedAt       DateTime? @map("activated_at")
+  deactivatedAt     DateTime? @map("deactivated_at")
+  parentModuleId    String?   @map("parent_module_id")
+  displayOrder      Int       @default(0) @map("display_order")
+
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  parent            Module?   @relation("ModuleHierarchy", fields: [parentModuleId], references: [id], onDelete: SetNull)
+  children          Module[]  @relation("ModuleHierarchy")
+  permissions       Permission[]
+  workflowSteps     WorkflowStep[]
+  dependencies      ModuleDependency[]      @relation("ModuleDependsOn")
+  dependentOf       ModuleDependency[]      @relation("ModuleDependedOnBy")
+  activationHistory ModuleActivationHistory[]
+
+  @@index([isCore])
+  @@index([isActive])
+  @@index([parentModuleId])
+  @@map("modules")
+  @@schema("core")
+}
+
+model ModuleDependency {
+  id                  String   @id @default(uuid())
+  moduleId            String   @map("module_id")
+  dependsOnModuleId   String   @map("depends_on_module_id")
+  isHardDependency    Boolean  @default(true) @map("is_hard_dependency")
+
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  module              Module   @relation("ModuleDependsOn",   fields: [moduleId],          references: [id], onDelete: Cascade)
+  dependsOn           Module   @relation("ModuleDependedOnBy",fields: [dependsOnModuleId], references: [id], onDelete: Cascade)
+
+  @@unique([moduleId, dependsOnModuleId])
+  @@index([moduleId])
+  @@index([dependsOnModuleId])
+  @@map("module_dependencies")
+  @@schema("core")
+}
+
+model ModuleActivationHistory {
+  id              String   @id @default(uuid())
+  moduleId        String   @map("module_id")
+  action          String   // activated | deactivated
+  reason          String?
+  actorUserId     String?  @map("actor_user_id")
+  actionAt        DateTime @default(now()) @map("action_at")
+
+  module          Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@index([moduleId])
+  @@index([actionAt])
+  @@map("module_activation_history")
+  @@schema("core")
+}
+
+model Workflow {
+  id              String   @id @default(uuid())
+  workflowCode    String   @unique @map("workflow_code")
+  name            String
+  description     String?
+  targetEntity    String   @map("target_entity") // e.g. order | po | grn
+  triggerEvent    String   @map("trigger_event")
+  isActive        Boolean  @default(true) @map("is_active")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdById     String?  @map("created_by_id")
+  updatedById     String?  @map("updated_by_id")
+
+  steps           WorkflowStep[]
+  instances       WorkflowInstance[]
+
+  @@index([targetEntity])
+  @@index([isActive])
+  @@map("workflows")
+  @@schema("core")
+}
+
+model WorkflowStep {
+  id                      String   @id @default(uuid())
+  workflowId              String   @map("workflow_id")
+  stepSequence            Int      @map("step_sequence")
+  stepName                String   @map("step_name")
+  stepType                String   @map("step_type") // approval | notification | condition | action
+  assigneeType            String?  @map("assignee_type") // role | user | dynamic
+  assigneeValue           String?  @map("assignee_value")
+  conditionJson           Json?    @map("condition_json")
+  timeoutMinutes          Int?     @map("timeout_minutes")
+  skipIfModuleInactive    Boolean  @default(false) @map("skip_if_module_inactive")
+  targetModuleId          String?  @map("target_module_id")
+
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  workflow                Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  targetModule            Module?  @relation(fields: [targetModuleId], references: [id], onDelete: SetNull)
+  actionLogs              WorkflowActionLog[]
+
+  @@unique([workflowId, stepSequence])
+  @@index([workflowId])
+  @@index([targetModuleId])
+  @@map("workflow_steps")
+  @@schema("core")
+}
+
+model WorkflowInstance {
+  id              String    @id @default(uuid())
+  workflowId      String    @map("workflow_id")
+  targetEntityId  String    @map("target_entity_id")
+  currentStep     Int       @default(0) @map("current_step")
+  status          String    @default("active") // active | completed | cancelled
+  initiatedById   String?   @map("initiated_by_id")
+  initiatedAt     DateTime  @default(now()) @map("initiated_at")
+  completedAt     DateTime? @map("completed_at")
+
+  workflow        Workflow  @relation(fields: [workflowId], references: [id], onDelete: Restrict)
+  actionLogs      WorkflowActionLog[]
+
+  @@index([workflowId])
+  @@index([targetEntityId])
+  @@index([status])
+  @@map("workflow_instances")
+  @@schema("core")
+}
+
+model WorkflowActionLog {
+  id            String   @id @default(uuid())
+  instanceId    String   @map("instance_id")
+  stepId        String?  @map("step_id")
+  actionTaken   String   @map("action_taken") // approved | rejected | reassigned | skipped | timed_out
+  actorUserId   String?  @map("actor_user_id")
+  actionAt      DateTime @default(now()) @map("action_at")
+  notes         String?
+
+  instance      WorkflowInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  step          WorkflowStep?    @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  @@index([instanceId])
+  @@index([stepId])
+  @@index([actionAt])
+  @@map("workflow_action_logs")
+  @@schema("core")
+}
+
+// =============================================================================
+// SECTION 5 — Audit & Compliance (5 tables)
+// =============================================================================
+
+model AuditLog {
+  id              String   @id @default(uuid())
+  entityType      String   @map("entity_type")
+  entityId        String?  @map("entity_id")
+  action          String   // create | update | delete | login | logout | permission_change
+  actorUserId     String?  @map("actor_user_id")
+  actorIp         String?  @map("actor_ip")
+  actorUserAgent  String?  @map("actor_user_agent")
+  beforeData      Json?    @map("before_data")
+  afterData       Json?    @map("after_data")
+  changesSummary  String?  @map("changes_summary")
+  actionAt        DateTime @default(now()) @map("action_at")
+  requestId       String?  @map("request_id")
+
+  @@index([entityType])
+  @@index([entityId])
+  @@index([action])
+  @@index([actorUserId])
+  @@index([actionAt])
+  @@index([requestId])
+  @@map("audit_logs")
+  @@schema("core")
+}
+
+model DpdpConsent {
+  id                String    @id @default(uuid())
+  userId            String?   @map("user_id")
+  customerUserId    String?   @map("customer_user_id")
+  consentType       String    @map("consent_type") // terms | privacy | marketing | cookies
+  versionId         String?   @map("version_id")
+  consentedAt       DateTime  @default(now()) @map("consented_at")
+  consentMethod     String?   @map("consent_method") // signup | banner | api
+  ipAddress         String?   @map("ip_address")
+  withdrawnAt       DateTime? @map("withdrawn_at")
+  withdrawalReason  String?   @map("withdrawal_reason")
+
+  user              User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerUser      CustomerUser? @relation(fields: [customerUserId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([customerUserId])
+  @@index([consentType])
+  @@map("dpdp_consents")
+  @@schema("core")
+}
+
+model DpdpDataRequest {
+  id              String    @id @default(uuid())
+  requesterType   String    @map("requester_type") // employee | customer
+  requesterId     String    @map("requester_id")
+  requestType     String    @map("request_type")   // export | erasure
+  status          String    @default("submitted")  // submitted | processing | completed | rejected
+  submittedAt     DateTime  @default(now()) @map("submitted_at")
+  processedAt     DateTime? @map("processed_at")
+  processedById   String?   @map("processed_by_id")
+  responseDataUrl String?   @map("response_data_url")
+
+  @@index([requesterType, requesterId])
+  @@index([status])
+  @@map("dpdp_data_requests")
+  @@schema("core")
+}
+
+model PrivacyPolicyVersion {
+  id            String    @id @default(uuid())
+  version       String
+  content       String    @db.Text
+  effectiveFrom DateTime  @map("effective_from")
+  isActive      Boolean   @default(false) @map("is_active")
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@unique([version])
+  @@index([isActive])
+  @@map("privacy_policy_versions")
+  @@schema("core")
+}
+
+model TermsOfServiceVersion {
+  id            String    @id @default(uuid())
+  version       String
+  content       String    @db.Text
+  effectiveFrom DateTime  @map("effective_from")
+  isActive      Boolean   @default(false) @map("is_active")
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@unique([version])
+  @@index([isActive])
+  @@map("terms_of_service_versions")
+  @@schema("core")
+}
+
+// =============================================================================
+// SECTION 6 — Communication (6 tables)
+// =============================================================================
+
+model EmailProvider {
+  id              String   @id @default(uuid())
+  providerName    String   @map("provider_name") // smtp | sendgrid | ses | mailgun
+  // providerCode is the IMPLEMENTATION TYPE (smtp / sendgrid / ses / mailgun
+  // / log), NOT a unique identifier. Multiple rows with the same code are
+  // expected (e.g. a primary SMTP + a fallback SMTP from a different host).
+  providerCode    String   @map("provider_code")
+  configuration   Json     // @encrypted (smtp creds, API keys)
+  fromEmail       String   @map("from_email")
+  fromName        String?  @map("from_name")
+  isPrimary       Boolean  @default(false) @map("is_primary")
+  isActive        Boolean  @default(true) @map("is_active")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdById     String?  @map("created_by_id")
+  updatedById     String?  @map("updated_by_id")
+
+  notificationLogs NotificationLog[]
+
+  @@index([isActive])
+  @@index([isPrimary])
+  @@map("email_providers")
+  @@schema("core")
+}
+
+model SmsProvider {
+  id              String   @id @default(uuid())
+  providerName    String   @map("provider_name") // msg91 | twilio | ...
+  // Implementation type, NOT a unique identifier — multiple rows with the
+  // same code allowed (e.g. primary MSG91 + fallback MSG91 with different
+  // sender IDs). Mirrors the email-provider fix from P0-15.
+  providerCode    String   @map("provider_code")
+  configuration   Json     // @encrypted
+  senderId        String?  @map("sender_id")     // DLT-registered for India
+  isPrimary       Boolean  @default(false) @map("is_primary")
+  isActive        Boolean  @default(true) @map("is_active")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdById     String?  @map("created_by_id")
+  updatedById     String?  @map("updated_by_id")
+
+  @@index([isActive])
+  @@index([isPrimary])
+  @@map("sms_providers")
+  @@schema("core")
+}
+
+model WhatsappProvider {
+  id              String   @id @default(uuid())
+  providerName    String   @map("provider_name")
+  providerCode    String   @map("provider_code")
+  configuration   Json     // @encrypted
+  phoneNumberId   String?  @map("phone_number_id")
+  businessAccountId String? @map("business_account_id")
+  webhookSecret   String?  @map("webhook_secret")
+  isPrimary       Boolean  @default(false) @map("is_primary")
+  isActive        Boolean  @default(true) @map("is_active")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdById     String?  @map("created_by_id")
+  updatedById     String?  @map("updated_by_id")
+
+  notificationLogs NotificationLog[]
+
+  @@index([isActive])
+  @@index([isPrimary])
+  @@map("whatsapp_providers")
+  @@schema("core")
+}
+
+model CommunicationTemplate {
+  id                String   @id @default(uuid())
+  templateCode      String   @unique @map("template_code")
+  name              String
+  channel           String   // email | sms | whatsapp
+  subjectTemplate   String?  @map("subject_template")
+  bodyTemplate      String   @db.Text @map("body_template")
+  variablesSchema   Json?    @map("variables_schema")
+  // DLT (TRAI / India) compliance for SMS templates. Each registered
+  // template gets a Telecom-issued ID; the SMS service refuses sends when
+  // DLT enforcement is on and dltTemplateId is missing. Optional for
+  // non-SMS templates.
+  dltTemplateId     String?  @map("dlt_template_id")
+  // WhatsApp-specific: Meta-approved templates have structured
+  // header/footer/buttons and a namespace from the BSP.
+  waApprovalStatus  String?  @map("wa_approval_status") // draft | submitted | approved | rejected
+  waNamespace       String?  @map("wa_namespace")
+  headerTemplate    String?  @map("header_template")
+  footerTemplate    String?  @map("footer_template")
+  buttonsTemplate   Json?    @map("buttons_template")
+  isActive          Boolean  @default(true) @map("is_active")
+
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  createdById       String?  @map("created_by_id")
+  updatedById       String?  @map("updated_by_id")
+
+  @@index([channel])
+  @@index([isActive])
+  @@map("communication_templates")
+  @@schema("core")
+}
+
+model Notification {
+  id                  String    @id @default(uuid())
+  // Nullable so system-generated messages without a target user (anonymous
+  // forgot-password sends, broadcast SMS, etc.) can still be recorded.
+  recipientUserId     String?   @map("recipient_user_id")
+  notificationType    String    @map("notification_type")
+  title               String
+  body                String    @db.Text
+  isRead              Boolean   @default(false) @map("is_read")
+  readAt              DateTime? @map("read_at")
+  relatedEntityType   String?   @map("related_entity_type")
+  relatedEntityId     String?   @map("related_entity_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  recipient           User?     @relation(fields: [recipientUserId], references: [id], onDelete: Cascade)
+  logs                NotificationLog[]
+
+  @@index([recipientUserId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+  @@schema("core")
+}
+
+model NotificationLog {
+  id                  String    @id @default(uuid())
+  // Nullable: see comment on Notification.recipientUserId. A log row with no
+  // anchoring Notification is allowed for system-emitted messages (rate-limit
+  // tracking on anonymous sends, etc.).
+  notificationId      String?   @map("notification_id")
+  channel             String    // email | sms | whatsapp | inapp
+  emailProviderId     String?   @map("email_provider_id")
+  whatsappProviderId  String?   @map("whatsapp_provider_id")
+  recipientAddress    String    @map("recipient_address")
+  status              String    // queued | sent | delivered | failed | read
+  sentAt              DateTime? @map("sent_at")
+  deliveredAt         DateTime? @map("delivered_at")
+  readAt              DateTime? @map("read_at")
+  errorMessage        String?   @map("error_message")
+  providerMessageId   String?   @map("provider_message_id")
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  notification        Notification?      @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  emailProvider       EmailProvider?     @relation(fields: [emailProviderId], references: [id], onDelete: SetNull)
+  whatsappProvider    WhatsappProvider?  @relation(fields: [whatsappProviderId], references: [id], onDelete: SetNull)
+
+  @@index([notificationId])
+  @@index([channel])
+  @@index([status])
+  @@index([providerMessageId])
+  @@map("notification_log")
+  @@schema("core")
+}
+
+// =============================================================================
+// SECTION 7 — Customer Portal (4 tables)
+// =============================================================================
+
+model CustomerAccount {
+  id                  String    @id @default(uuid())
+  accountCode         String    @unique @map("account_code")
+  companyName         String    @map("company_name")
+  primaryContactName  String?   @map("primary_contact_name")
+  primaryEmail        String    @map("primary_email")
+  primaryPhone        String?   @map("primary_phone")
+  accountType         String    @map("account_type") // architect | dealer | direct | corporate
+  gstin               String?
+  pan                 String?
+  isActive            Boolean   @default(true) @map("is_active")
+  isVerified          Boolean   @default(false) @map("is_verified")
+  verifiedAt          DateTime? @map("verified_at")
+  signupRequestId     String?   @unique @map("signup_request_id")
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  createdById         String?   @map("created_by_id")
+  updatedById         String?   @map("updated_by_id")
+  isDeleted           Boolean   @default(false) @map("is_deleted")
+  deletedAt           DateTime? @map("deleted_at")
+  deletedById         String?   @map("deleted_by_id")
+
+  signupRequest       CustomerSignupRequest? @relation(fields: [signupRequestId], references: [id], onDelete: SetNull)
+  users               CustomerUser[]
+  portalPermissions   CustomerPortalPermission[]
+
+  @@index([accountType])
+  @@index([isActive])
+  @@index([isVerified])
+  @@index([isDeleted])
+  @@map("customer_accounts")
+  @@schema("core")
+}
+
+model CustomerUser {
+  id                  String    @id @default(uuid())
+  customerAccountId   String    @map("customer_account_id")
+  email               String
+  passwordHash        String    @map("password_hash") // @encrypted
+  firstName           String    @map("first_name")
+  lastName            String    @map("last_name")
+  phone               String?
+  role                String    @default("regular") // admin | regular
+  isActive            Boolean   @default(true) @map("is_active")
+  lastLoginAt         DateTime? @map("last_login_at")
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  createdById         String?   @map("created_by_id")
+  updatedById         String?   @map("updated_by_id")
+
+  account               CustomerAccount    @relation(fields: [customerAccountId], references: [id], onDelete: Cascade)
+  oauthConnections      OauthConnection[]
+  dpdpConsents          DpdpConsent[]
+  sessions              UserSession[]
+  passwordResetTokens   PasswordResetToken[]
+
+  @@unique([customerAccountId, email])
+  @@index([customerAccountId])
+  @@index([email])
+  @@index([isActive])
+  @@map("customer_users")
+  @@schema("core")
+}
+
+model CustomerSignupRequest {
+  id                String    @id @default(uuid())
+  companyName       String    @map("company_name")
+  contactName       String    @map("contact_name")
+  email             String
+  phone             String?
+  accountType       String    @map("account_type")
+  businessProofUrl  String?   @map("business_proof_url")
+  status            String    @default("pending") // pending | approved | rejected
+  submittedAt       DateTime  @default(now()) @map("submitted_at")
+  reviewedById      String?   @map("reviewed_by_id")
+  reviewedAt        DateTime? @map("reviewed_at")
+  reviewNotes       String?   @map("review_notes")
+
+  approvedAccount   CustomerAccount?
+
+  @@index([status])
+  @@index([email])
+  @@map("customer_signup_requests")
+  @@schema("core")
+}
+
+model CustomerPortalPermission {
+  id                  String   @id @default(uuid())
+  customerAccountId   String   @map("customer_account_id")
+  permissionCode      String   @map("permission_code")
+  grantedAt           DateTime @default(now()) @map("granted_at")
+  grantedById         String?  @map("granted_by_id")
+
+  account             CustomerAccount @relation(fields: [customerAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([customerAccountId, permissionCode])
+  @@index([customerAccountId])
+  @@map("customer_portal_permissions")
+  @@schema("core")
+}
+
+// =============================================================================
+// SECTION 8 — Payment Foundation (3 tables)
+// =============================================================================
+
+model PaymentGateway {
+  id              String   @id @default(uuid())
+  gatewayCode     String   @unique @map("gateway_code") // razorpay | stripe | ...
+  displayName     String   @map("display_name")
+  configuration   Json     // @encrypted
+  isTestMode      Boolean  @default(true) @map("is_test_mode")
+  isPrimary       Boolean  @default(false) @map("is_primary")
+  isActive        Boolean  @default(true) @map("is_active")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdById     String?  @map("created_by_id")
+  updatedById     String?  @map("updated_by_id")
+
+  transactions    PaymentTransaction[]
+
+  @@index([isActive])
+  @@index([isPrimary])
+  @@map("payment_gateways")
+  @@schema("core")
+}
+
+model PaymentTransaction {
+  id                    String    @id @default(uuid())
+  transactionCode       String    @unique @map("transaction_code")
+  gatewayId             String?   @map("gateway_id")
+  paymentMode           String    @map("payment_mode") // online | bank_transfer | cheque | cash
+  relatedEntityType     String?   @map("related_entity_type")
+  relatedEntityId       String?   @map("related_entity_id")
+  amount                Decimal   @db.Decimal(18, 2)
+  currency              String    @default("INR")
+  status                String    @default("initiated") // initiated | pending | success | failed | refunded
+  gatewayTransactionId  String?   @map("gateway_transaction_id")
+  gatewayPaymentId      String?   @map("gateway_payment_id")
+  utrNumber             String?   @map("utr_number")
+  chequeNumber          String?   @map("cheque_number")
+  chequeDate            DateTime? @map("cheque_date") @db.Date
+  payerName             String?   @map("payer_name")
+  notes                 String?
+
+  initiatedAt           DateTime  @default(now()) @map("initiated_at")
+  completedAt           DateTime? @map("completed_at")
+
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  createdById           String?   @map("created_by_id")
+  updatedById           String?   @map("updated_by_id")
+
+  gateway               PaymentGateway? @relation(fields: [gatewayId], references: [id], onDelete: SetNull)
+  refunds               PaymentRefund[]
+
+  @@index([gatewayId])
+  @@index([paymentMode])
+  @@index([status])
+  @@index([relatedEntityType, relatedEntityId])
+  @@map("payment_transactions")
+  @@schema("core")
+}
+
+model PaymentRefund {
+  id                  String    @id @default(uuid())
+  refundCode          String    @unique @map("refund_code")
+  transactionId       String    @map("transaction_id")
+  amount              Decimal   @db.Decimal(18, 2)
+  currency            String    @default("INR")
+  reason              String?
+  status              String    @default("initiated") // initiated | pending | success | failed
+  gatewayRefundId     String?   @map("gateway_refund_id")
+  initiatedAt         DateTime  @default(now()) @map("initiated_at")
+  completedAt         DateTime? @map("completed_at")
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  createdById         String?   @map("created_by_id")
+  updatedById         String?   @map("updated_by_id")
+
+  transaction         PaymentTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+
+  @@index([transactionId])
+  @@index([status])
+  @@map("payment_refunds")
+  @@schema("core")
+}
+
+// =============================================================================
+// SECTION 9 — Documents / Numbering / Settings (3 tables)
+// =============================================================================
+
+model Document {
+  id                  String    @id @default(uuid())
+  documentType        String    @map("document_type")
+  name                String
+  filePath            String    @map("file_path")
+  fileSize            BigInt?   @map("file_size")
+  mimeType            String?   @map("mime_type")
+  relatedEntityType   String?   @map("related_entity_type")
+  relatedEntityId     String?   @map("related_entity_id")
+  uploadedById        String?   @map("uploaded_by_id")
+  uploadedAt          DateTime  @default(now()) @map("uploaded_at")
+  version             Int       @default(1)
+  parentDocumentId    String?   @map("parent_document_id")
+  // Soft delete (P0-12). The physical file is intentionally NOT removed —
+  // we keep it for audit / regulatory recovery. The flag just hides the row
+  // from normal lists and downloads.
+  isDeleted           Boolean   @default(false) @map("is_deleted")
+  deletedAt           DateTime? @map("deleted_at")
+  deletedById         String?   @map("deleted_by_id")
+
+  parent              Document?  @relation("DocumentVersions", fields: [parentDocumentId], references: [id], onDelete: SetNull)
+  versions            Document[] @relation("DocumentVersions")
+
+  @@index([documentType])
+  @@index([relatedEntityType, relatedEntityId])
+  @@index([parentDocumentId])
+  @@index([isDeleted])
+  @@map("documents")
+  @@schema("core")
+}
+
+model NumberingSeries {
+  id              String    @id @default(uuid())
+  seriesCode      String    @unique @map("series_code") // ORD | INV | PO | GRN | ...
+  name            String
+  prefix          String?
+  yearFormat      String    @default("YYYY") @map("year_format") // YYYY | YY | none
+  separator       String    @default("/")
+  paddingLength   Int       @default(4) @map("padding_length")
+  currentNumber   Int       @default(0) @map("current_number")
+  resetYearly     Boolean   @default(true) @map("reset_yearly")
+  lastResetAt     DateTime? @map("last_reset_at")
+  isActive        Boolean   @default(true) @map("is_active")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  createdById     String?   @map("created_by_id")
+  updatedById     String?   @map("updated_by_id")
+
+  @@index([isActive])
+  @@map("numbering_series")
+  @@schema("core")
+}
+
+model SystemSetting {
+  id              String    @id @default(uuid())
+  settingKey      String    @unique @map("setting_key")
+  settingValue    String?   @map("setting_value") @db.Text
+  dataType        String    @map("data_type") // string | integer | boolean | json
+  category        String?
+  description     String?
+  isUserEditable  Boolean   @default(true) @map("is_user_editable")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  createdById     String?   @map("created_by_id")
+  updatedById     String?   @map("updated_by_id")
+
+  @@index([category])
+  @@map("system_settings")
+  @@schema("core")
+}

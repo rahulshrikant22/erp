@@ -1,0 +1,57 @@
+# --- Node ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Environment ---
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# --- Build output ---
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# --- Next.js ---
+.next/
+next-env.d.ts
+
+# --- Prisma generated client ---
+backend/node_modules/.prisma/
+backend/prisma/migrations/dev.db*
+backend/prisma/*.db
+backend/prisma/*.db-journal
+
+# --- Editor / OS ---
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# --- Logs ---
+logs/
+*.log
+
+# --- Coverage / test artifacts ---
+coverage/
+.nyc_output/
+
+# --- Local upload / temp ---
+uploads/
+tmp/
+temp/
+
+# --- Local installer cache (never commit binaries / temp passwords) ---
+.installers/
+
+# --- Lockfiles for non-primary package managers ---
+yarn.lock
+pnpm-lock.yaml
