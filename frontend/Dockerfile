@@ -1,20 +1,19 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Copy root lockfile and workspace package.json files
+# Copy root package files (workspace root)
 COPY package.json package-lock.json ./
 COPY backend/package.json ./backend/
 COPY frontend/package.json ./frontend/
 
-# Install all deps
-RUN npm ci --workspace=frontend
+# Install all workspace deps from root
+RUN npm ci
 
 # Copy frontend source
 COPY frontend/ ./frontend/
 
-# Build Next.js with basePath
+# Build Next.js
 ENV BASE_PATH=/erp
-ENV NEXT_PUBLIC_API_URL=/erp/api
 WORKDIR /app/frontend
 RUN npm run build
 
