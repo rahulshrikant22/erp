@@ -10,8 +10,9 @@ RUN NODE_ENV=development npm install
 # Copy frontend source
 COPY frontend/ ./
 
-# Build Next.js
+# Build Next.js (limit heap to avoid OOM on small VPS)
 ENV BASE_PATH=/erp
+ENV NODE_OPTIONS="--max-old-space-size=512"
 RUN npm run build
 
 FROM node:20-alpine AS runner
