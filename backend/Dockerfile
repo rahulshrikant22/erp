@@ -4,7 +4,7 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 
 COPY package.json ./
-RUN npm install
+RUN NODE_ENV=development npm install
 
 COPY prisma ./prisma
 RUN DATABASE_URL="postgresql://x:x@localhost:5432/x" npx prisma generate
