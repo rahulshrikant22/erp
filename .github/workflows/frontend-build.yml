@@ -45,11 +45,17 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
 
+      - name: Make package public
+        run: |
+          curl -s -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/user/packages/container/erp%2Ffrontend" \
+            -d '{"visibility": "public"}' || true
+
       - name: Trigger Coolify deploy
         if: success()
         run: |
-          curl -s -X POST \
-            "http://${{ secrets.COOLIFY_HOST }}/api/v1/applications/${{ secrets.COOLIFY_FRONTEND_UUID }}/deploy" \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d '{"force_rebuild": true}'
+          curl -s -X GET \
+            "http://${{ secrets.COOLIFY_HOST }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_FRONTEND_UUID }}&force=true" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}"
