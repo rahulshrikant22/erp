@@ -1,27 +1,20 @@
 FROM node:20-alpine
 WORKDIR /app
 
-# Install native build tools for bcrypt
 RUN apk add --no-cache python3 make g++
 
-# Copy package.json and install deps
 COPY package.json ./
-RUN npm install --legacy-peer-deps
+RUN npm install
 
-# Copy prisma schema and generate client
 COPY prisma ./prisma
-RUN npx prisma generate
+RUN DATABASE_URL="postgresql://x:x@localhost:5432/x" npx prisma generate
 
-# Copy source and build
 COPY tsconfig.json ./
 COPY src ./src
 RUN npx tsc -p tsconfig.json
 
-# Cleanup build tools
-RUN apk del python3 make g++ && rm -rf /root/.cache /tmp/*
+RUN apk del python3 make g++
 
 ENV NODE_ENV=production
 EXPOSE 4000
-HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
-  CMD wget -qO- http://localhost:4000/health || exit 1
-CMD ["sh", "-c", "npx prisma migrate deploy 2>&1; node dist/index.js"]
+CMD ["node", "dist/index.js"]
