@@ -3,8 +3,9 @@ WORKDIR /app
 
 COPY frontend/package.json ./package.json
 
-# Generate a package-lock.json for frontend only and install
-RUN npm install
+# Install all deps (force development to include devDependencies even if
+# Coolify injects NODE_ENV=production as build-time env)
+RUN NODE_ENV=development npm install
 
 # Copy frontend source
 COPY frontend/ ./
