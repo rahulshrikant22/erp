@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: erp
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-erp_secret_2026}
+      POSTGRES_DB: erp_prod
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erp"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgresql://erp:${DB_PASSWORD:-erp_secret_2026}@postgres:5432/erp_prod?schema=core&search_path=core,sales
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "4000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - BASE_PATH=/erp
+        - NEXT_PUBLIC_API_URL=/erp/api
+    environment:
+      NODE_ENV: production
+      BASE_PATH: /erp
+      BACKEND_INTERNAL_URL: http://backend:4000
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3100}:3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.erp.rule=Host(`outdostudio.in`) && PathPrefix(`/erp`)"
+      - "traefik.http.routers.erp.entrypoints=https"
+      - "traefik.http.routers.erp.tls=true"
+      - "traefik.http.routers.erp.tls.certresolver=letsencrypt"
+      - "traefik.http.services.erp.loadbalancer.server.port=3000"
+
+volumes:
+  pgdata:
