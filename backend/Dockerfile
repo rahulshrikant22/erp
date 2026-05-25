@@ -1,12 +1,15 @@
-FROM node:20-alpine AS builder
+FROM node:20-alpine
 WORKDIR /app
 
-# Copy root package files (workspace root)
+# Install build tools needed for bcrypt native module
+RUN apk add --no-cache python3 make g++
+
+# Copy root package files
 COPY package.json package-lock.json ./
 COPY backend/package.json ./backend/
 COPY frontend/package.json ./frontend/
 
-# Install all workspace deps from root
+# Install all deps
 RUN npm ci
 
 # Copy backend source
@@ -14,24 +17,16 @@ COPY backend/prisma ./backend/prisma
 COPY backend/tsconfig.json ./backend/
 COPY backend/src ./backend/src
 
-# Generate Prisma and build
+# Generate Prisma client
 WORKDIR /app/backend
 RUN npx prisma generate
+
+# Build TypeScript
 RUN npx tsc -p tsconfig.json
 
-FROM node:20-alpine AS runner
-WORKDIR /app
-
-COPY package.json package-lock.json ./
-COPY backend/package.json ./backend/
-COPY frontend/package.json ./frontend/
-RUN npm ci --omit=dev
-
-COPY --from=builder /app/backend/dist ./backend/dist
-COPY --from=builder /app/backend/prisma ./backend/prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+# Clean up build tools
+RUN apk del python3 make g++
 
 ENV NODE_ENV=production
 EXPOSE 4000
-WORKDIR /app/backend
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
