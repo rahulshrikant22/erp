@@ -4,20 +4,20 @@ WORKDIR /app
 # Install native build tools for bcrypt
 RUN apk add --no-cache python3 make g++
 
-# Copy only backend package.json and install directly (no workspace)
-COPY backend/package.json ./
+# Copy package.json and install deps
+COPY package.json ./
 RUN npm install --legacy-peer-deps
 
 # Copy prisma schema and generate client
-COPY backend/prisma ./prisma
+COPY prisma ./prisma
 RUN npx prisma generate
 
 # Copy source and build
-COPY backend/tsconfig.json ./
-COPY backend/src ./src
+COPY tsconfig.json ./
+COPY src ./src
 RUN npx tsc -p tsconfig.json
 
-# Cleanup
+# Cleanup build tools
 RUN apk del python3 make g++ && rm -rf /root/.cache /tmp/*
 
 ENV NODE_ENV=production
