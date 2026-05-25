@@ -81,7 +81,11 @@ const MODULES = [
 
 const NUMBERING_SERIES = [
   { seriesCode: 'ORD',  name: 'Sales Order',          prefix: 'ORD',  paddingLength: 5 },
-  { seriesCode: 'INV',  name: 'Invoice',              prefix: 'INV',  paddingLength: 5 },
+  { seriesCode: 'INV',  name: 'Tax Invoice',          prefix: 'INV',  paddingLength: 5 },
+  { seriesCode: 'PROF', name: 'Proforma Invoice',     prefix: 'PROF', paddingLength: 5 },
+  { seriesCode: 'SO',   name: 'Sales Order Confirmation', prefix: 'SO', paddingLength: 5 },
+  { seriesCode: 'RCPT', name: 'Payment Receipt',      prefix: 'RCPT', paddingLength: 5 },
+  { seriesCode: 'CUST', name: 'Customer Code',        prefix: 'CUST', paddingLength: 5 },
   { seriesCode: 'PO',   name: 'Purchase Order',       prefix: 'PO',   paddingLength: 5 },
   { seriesCode: 'GRN',  name: 'Goods Receipt Note',   prefix: 'GRN',  paddingLength: 5 },
   { seriesCode: 'MIN',  name: 'Material Issue Note',  prefix: 'MIN',  paddingLength: 5 },
@@ -185,7 +189,7 @@ async function seedNumberingSeries(): Promise<void> {
     });
   }
   const total = await prisma.numberingSeries.count();
-  console.log(`numbering series  : ${total} (target 7)`);
+  console.log(`numbering series  : ${total} (target 11)`);
 }
 
 // =============================================================================
@@ -710,6 +714,68 @@ async function seedCommunicationTemplates(): Promise<void> {
   console.log(`comm templates    : ${total} (target ${COMMUNICATION_TEMPLATES.length}+)`);
 }
 
+// =============================================================================
+// P1-01 — Payment terms templates
+// =============================================================================
+
+const PAYMENT_TERMS_TEMPLATES = [
+  {
+    templateCode: 'STANDARD_50_40_10',
+    templateName: 'Standard 50-40-10',
+    description: '50% advance on order, 40% before dispatch, 10% after installation',
+    milestones: [
+      { sequence: 1, name: 'Advance on Order',      percentage: 50, triggerEvent: 'on_order' },
+      { sequence: 2, name: 'Before Dispatch',       percentage: 40, triggerEvent: 'before_dispatch' },
+      { sequence: 3, name: 'After Installation',    percentage: 10, triggerEvent: 'after_installation' },
+    ],
+  },
+  {
+    templateCode: 'FULL_ADVANCE',
+    templateName: 'Full Advance',
+    description: '100% payment required before order processing begins',
+    milestones: [
+      { sequence: 1, name: 'Full Advance', percentage: 100, triggerEvent: 'on_order' },
+    ],
+  },
+  {
+    templateCode: 'CREDIT_30_DAYS',
+    templateName: '30-day Credit',
+    description: 'Full payment due within 30 days of delivery',
+    milestones: [
+      { sequence: 1, name: 'Net 30 Days', percentage: 100, triggerEvent: 'fixed_days', triggerDays: 30 },
+    ],
+  },
+] as const;
+
+async function seedPaymentTermsTemplates(): Promise<void> {
+  for (const t of PAYMENT_TERMS_TEMPLATES) {
+    const existing = await prisma.paymentTermsTemplate.findUnique({
+      where: { templateCode: t.templateCode },
+    });
+    if (existing) continue;
+
+    await prisma.paymentTermsTemplate.create({
+      data: {
+        templateCode: t.templateCode,
+        templateName: t.templateName,
+        description: t.description,
+        isActive: true,
+        milestones: {
+          create: t.milestones.map((m) => ({
+            milestoneSequence: m.sequence,
+            milestoneName: m.name,
+            percentage: m.percentage,
+            triggerEvent: m.triggerEvent,
+            triggerDays: 'triggerDays' in m ? m.triggerDays : null,
+          })),
+        },
+      },
+    });
+  }
+  const total = await prisma.paymentTermsTemplate.count();
+  console.log(`payment terms     : ${total} templates (target ${PAYMENT_TERMS_TEMPLATES.length})`);
+}
+
 async function main(): Promise<void> {
   console.log('--- foundation seed ---');
   await seedOrganization();
@@ -721,6 +787,7 @@ async function main(): Promise<void> {
   const baseline = await seedPermissions();
   await seedRolePermissions(baseline);
   await seedCommunicationTemplates();
+  await seedPaymentTermsTemplates();
   console.log('-----------------------');
   console.log('seed complete.');
 }

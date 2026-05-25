@@ -40,6 +40,11 @@ import publicSignupRouter from './public-signup';
 import portalUsersRouter from './portal-users';
 import adminNumberingRouter from './admin-numbering';
 import adminSettingsRouter from './admin-settings';
+import customersRouter from './customers';
+import productsRouter from './products';
+import productCategoriesRouter from './product-categories';
+import ordersRouter from './orders';
+import paymentTermsRouter from './payment-terms';
 
 export function registerRoutes(app: Application): void {
   app.use('/api/auth', authRouter);
@@ -79,4 +84,9 @@ export function registerRoutes(app: Application): void {
   app.use('/api/portal', portalUsersRouter);
   app.use('/api/admin', adminNumberingRouter);
   app.use('/api/admin', adminSettingsRouter);
+  app.use('/api/customers', customersRouter);
+  app.use('/api/products', productsRouter);
+  app.use('/api/product-categories', productCategoriesRouter);
+  app.use('/api/orders', ordersRouter);
+  app.use('/api/admin/payment-terms-templates', paymentTermsRouter);
 }

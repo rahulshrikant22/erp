@@ -23,6 +23,9 @@ import {
   BadgeCheck,
   MapPin,
   Shield,
+  UserCircle,
+  Package,
+  ShoppingCart,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { EffectivePermissions } from '@/lib/types';
@@ -86,6 +89,29 @@ const NAV: NavGroup[] = [
         label: 'Audit logs',
         icon: ScrollText,
         requires: ['AUDIT:audit:view'],
+      },
+    ],
+  },
+  {
+    label: 'Sales',
+    items: [
+      {
+        href: '/admin/customers',
+        label: 'Customers',
+        icon: UserCircle,
+        requires: ['CUSTOMER:customer:view'],
+      },
+      {
+        href: '/admin/products',
+        label: 'Products',
+        icon: Package,
+        requires: ['CUSTOMER:customer:view'],
+      },
+      {
+        href: '/admin/orders',
+        label: 'Orders',
+        icon: ShoppingCart,
+        requires: ['ORDER:order:view'],
       },
     ],
   },

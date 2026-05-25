@@ -97,10 +97,30 @@ export async function auditEvent(input: AuditEventInput): Promise<void> {
 
 // -- helpers -------------------------------------------------------------
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  if (v == null || typeof v !== 'object') return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
+function toJsonSafe(v: unknown): unknown {
+  if (v == null) return v;
+  if (typeof v !== 'object') return v;
+  if (v instanceof Date) return v.toISOString();
+  if (typeof (v as { toNumber?: unknown }).toNumber === 'function') {
+    return (v as { toNumber(): number }).toNumber();
+  }
+  if (typeof (v as { toJSON?: unknown }).toJSON === 'function') {
+    return (v as { toJSON(): unknown }).toJSON();
+  }
+  return v;
+}
+
 function redact(value: unknown): unknown {
   if (value == null) return value;
   if (Array.isArray(value)) return value.map(redact);
   if (typeof value !== 'object') return value;
+  if (!isPlainObject(value)) return toJsonSafe(value);
 
   const obj = value as Record<string, unknown>;
   const out: Record<string, unknown> = {};
@@ -108,7 +128,11 @@ function redact(value: unknown): unknown {
     if (SENSITIVE_FIELD_PATTERN.test(k)) {
       out[k] = REDACTION_MARKER;
     } else if (v != null && typeof v === 'object') {
-      out[k] = redact(v);
+      if (isPlainObject(v) || Array.isArray(v)) {
+        out[k] = redact(v);
+      } else {
+        out[k] = toJsonSafe(v);
+      }
     } else {
       out[k] = v;
     }

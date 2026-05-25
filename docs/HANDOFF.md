@@ -2,10 +2,10 @@
 
 A single-file orientation for picking up this project on a different
 machine (likely a Mac). Distilled from the build sessions through
-**P0-30 (Phase 0 Integration Tests & Checklist)** complete on **2026-05-23**.
+**P1-01 (Sales Schema)** complete on **2026-05-25**.
 
-> **Phase 0 status: 30 of 30 prompts done. PHASE 0 COMPLETE.**
-> 299 / 299 backend tests passing. Ready for Phase 1.
+> **Phase 0: COMPLETE (30/30).** Phase 1 in progress: P1-01 done.
+> 299 / 299 backend tests passing. 76 tables (53 core + 23 sales).
 
 ---
 
@@ -13,7 +13,7 @@ machine (likely a Mac). Distilled from the build sessions through
 
 - Backend: Node 20+ / TypeScript 5 / Express / Prisma 6 / PostgreSQL 16
 - Frontend: Next.js 14 (App Router) / Tailwind / shadcn/ui — port **3100**
-- DB: PostgreSQL 16.13, single instance, multi-schema (`core` for Phase 0)
+- DB: PostgreSQL 16.13, single instance, multi-schema (`core` + `sales`)
 - 299 / 299 backend tests passing in ~13 s
 - ~200 API endpoints across auth / users / RBAC / modules / workflows / audit
   / org / branches / departments / roles / documents / custom fields /
@@ -47,7 +47,7 @@ ERP/                              ← repo root
 ├── backend/
 │   ├── package.json
 │   ├── prisma/
-│   │   ├── schema.prisma         ← 53+ models in `core` schema
+│   │   ├── schema.prisma         ← 76 models (53 core + 23 sales)
 │   │   ├── migrations/           ← every migration applied chronologically
 │   │   └── seed.ts               ← idempotent foundation seed
 │   ├── scripts/

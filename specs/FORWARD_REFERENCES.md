@@ -1,7 +1,30 @@
 # FORWARD REFERENCES — MASTER FEATURE INDEX
 
-**Version:** 1.0
+**Version:** 1.0.1
 **Purpose:** Single source of truth for which prompt builds which feature across all 8 phases.
+
+> **v1.0.1 patch note:** This is a minimal patch. Only two things changed from v1.0: (1) the material master references now point to MATERIAL_MASTER_DESIGN_LOCK.md as the authoritative design, and (2) the superseded gap-analysis files are marked. The Phase 2+ feature detail will be fully re-synced to v1.1 when PROMPTS_P2.md is regenerated. For Phase 0 and Phase 1 builds (your current work), everything in this file is accurate.
+
+---
+
+## DOCUMENT STATUS — WHICH SPEC FILES ARE CURRENT
+
+| File | Status | Use it? |
+|---|---|---|
+| ERP_SPEC.md | Master plan | Yes — reference |
+| FORWARD_REFERENCES.md | This file (v1.0.1) | Yes — scope radar |
+| MATERIAL_MASTER_DESIGN_LOCK.md | **Authoritative for material master** | Yes — Phase 2 implements this |
+| PROMPTS_P0.md | Current (v2.0) | Yes — built |
+| PROMPTS_P1.md | Current (v2.0) | Yes — build next |
+| PROMPTS_P2.md (old) | **Will be regenerated to v2.0 before Phase 2 build** | Wait — do not build from old version |
+| PROMPTS_P3.md (old) | **Will be regenerated to v2.0 before Phase 3 build** | Wait |
+| PROMPTS_P4.md (old) | **Will be regenerated to v2.0 before Phase 4 build** | Wait |
+| PHASES_2345_ADDENDUM_MATERIAL_PLANNING.md | Will fold into regenerated P2/P3/P4 | Reference only |
+| PROMPTS_P5.md | Current (recent) | Yes — when reached |
+| PROMPTS_P6.md | Current (recent) | Yes — when reached |
+| PROMPT_GAP_ANALYSIS.md | **SUPERSEDED by MATERIAL_MASTER_DESIGN_LOCK.md** | No — do not use |
+| GAP_ANALYSIS_ADDENDUM.md | **SUPERSEDED by MATERIAL_MASTER_DESIGN_LOCK.md** | No — do not use |
+| PHASE2_ADDENDUM.md | **SUPERSEDED — will fold into regenerated P2** | No — do not use |
 
 ---
 
@@ -234,24 +257,29 @@ At the start of every prompt session, Claude Code is instructed to consult this 
 ## DOMAIN 3 — PRODUCT ENGINEERING (Phase 2)
 
 ### Material Master (Attribute-Based)
-- ✅ Material categories → P2-01
-- ✅ Attribute templates per category → P2-02A (post gap analysis)
-- ✅ Attribute field types (12 types including image) → P2-02A
-- ✅ Type A (admin dropdown) vs Type B (manual with autocomplete) → P2-02A
-- ✅ Conditional attribute visibility → P2-02A
-- ✅ Auto-generated material code from attributes → P2-02A
-- ✅ Auto-generated material name from attributes → P2-02A
-- ✅ Duplicate detection by attribute combination → P2-02A
-- ✅ Visual selection (swatch images) → P2-02B
-- ✅ Multiple images per material → P2-02B
-- ✅ Material UOM (purchase + consumption) → P2-02
-- ✅ Conversion factors → P2-02
-- ✅ Min stock levels → P2-02
-- ✅ CSV import with attribute validation → P2-15
-- 🔄 Material price history → Phase 3, P3-04 (vendor-rate-contract)
-- 🔄 FIFO costing layer → Phase 3, P3-09
-- 🔄 Material substitution rules — Embedded in BOM as primary + alternates → P2-06
-- ❌ Material approval workflow before activation → Out of scope (admin-driven only)
+> **NOTE: The authoritative design for the entire material master is MATERIAL_MASTER_DESIGN_LOCK.md.** The pointers below are indicative; exact prompt numbers will be finalized when PROMPTS_P2.md is regenerated to v2.0. Manufacturer-based identity, brand-scoped values, manufacturer catalog, and 7 material types are all defined in the design lock. The old "P2-02A post gap analysis" references are obsolete — the gap analysis is superseded by the design lock.
+- ✅ Material categories (admin-managed) → Phase 2 (per design lock)
+- ✅ Material types: Raw/Semi-Finished/Finished/Packaging/Consumables/Spare Parts/MRO → Phase 2
+- ✅ Attribute templates per category+type profile (Raw board ≠ Semi-finished board) → Phase 2
+- ✅ 12 attribute field types (incl. image-as-value) → Phase 2
+- ✅ Manufacturer-based identity (brand = manufacturer, NOT dealer) → Phase 2
+- ✅ Manufacturer-scoped values (color codes, quality variants like Hettich Onsys/Sensys) → Phase 2
+- ✅ Manufacturer Catalog Master with Excel import (code→name auto-fill) → Phase 2
+- ✅ Auto-generated material code (SKU) from identity attributes → Phase 2
+- ✅ Auto-generated material name from attributes → Phase 2
+- ✅ Duplicate detection by attribute hash (SKU always = uniqueness key) → Phase 2
+- ✅ Conditional attribute visibility & value dependencies → Phase 2
+- ✅ Category-configurable image requirement (required/optional/deferrable) → Phase 2
+- ✅ Visual selection (swatch images) → Phase 2
+- ✅ Purchase UOM + consumption UOM with conversion → Phase 2
+- ✅ "Regular Brand" for unbranded materials → Phase 2
+- ✅ CSV import with attribute validation → Phase 2
+- 🔄 Material price history → Phase 3 (vendor rate contracts)
+- 🔄 FIFO costing layer → Phase 3
+- 🔄 Material substitution (primary + alternates) → Phase 2 BOM, not material master
+- 🔄 Manufacturer↔dealer↔product many-to-many mapping → Phase 3 (noted in design lock Part 11)
+- ❌ Material approval workflow before activation → Out of scope (admin-driven)
+- ❌ Parametric/configurator BOM → Deferred indefinitely
 
 ### Process Master
 - ✅ Process types (cutting, edge banding, drilling, etc.) → P2-05
@@ -639,8 +667,9 @@ When Phase 7 specs are delivered, this file gets updated with all Phase 7 detail
 | Version | Date | Changes |
 |---|---|---|
 | 1.0 | Initial | Complete feature index for Phases 0-6 with placeholder for Phases 7-8 |
+| 1.0.1 | This patch | Added Document Status table; repointed material master section to MATERIAL_MASTER_DESIGN_LOCK.md; marked gap-analysis files and PHASE2_ADDENDUM as superseded; flagged P2/P3/P4 old prompts as pending regeneration. No change to Phase 0 or Phase 1 entries. |
 
-**Next update:** When Phase 7 specs are produced (after you complete Phase 5 build), add full Phase 7 feature index.
+**Next update (v1.1):** When PROMPTS_P2.md is regenerated to v2.0 (before Phase 2 build). At that point, finalize exact Phase 2 prompt numbers, fully re-sync material/BOM/production sections, and fold in the material planning addendum. Phase 7 detail added after Phase 5 build; Phase 8 detail after Phase 6 build.
 
 ---
 

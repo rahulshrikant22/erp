@@ -30,7 +30,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["core"]
+  schemas  = ["core", "sales"]
 }
 
 // =============================================================================
@@ -1320,4 +1320,621 @@ model SystemSetting {
   @@index([category])
   @@map("system_settings")
   @@schema("core")
+}
+
+// =============================================================================
+// SECTION — SALES SCHEMA (Phase 1 — 23 Tables)
+// =============================================================================
+
+// -- Customer Master (4 tables) -----------------------------------------------
+
+model Customer {
+  id                        String    @id @default(uuid())
+  customerCode              String    @unique @map("customer_code")
+  customerName              String    @map("customer_name")
+  legalName                 String?   @map("legal_name")
+  customerType              String    @map("customer_type") // retail | dealer | architect | interior_designer | corporate
+  gstin                     String?
+  pan                       String?
+  primaryPhone              String?   @map("primary_phone")
+  primaryEmail              String?   @map("primary_email")
+  defaultBillingAddressId   String?   @map("default_billing_address_id")
+  defaultShippingAddressId  String?   @map("default_shipping_address_id")
+  creditLimit               Decimal?  @map("credit_limit") @db.Decimal(14, 2)
+  creditDays                Int?      @map("credit_days")
+  paymentTermsTemplateId    String?   @map("payment_terms_template_id")
+  bankName                  String?   @map("bank_name")
+  bankAccountNumber         String?   @map("bank_account_number")
+  bankIfsc                  String?   @map("bank_ifsc")
+  isActive                  Boolean   @default(true) @map("is_active")
+  isBlacklisted             Boolean   @default(false) @map("is_blacklisted")
+  notes                     String?   @db.Text
+  source                    String    @default("manual") // manual | csv_import | portal
+  linkedCustomerAccountId   String?   @map("linked_customer_account_id")
+
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+  createdById               String?   @map("created_by_id")
+  updatedById               String?   @map("updated_by_id")
+  isDeleted                 Boolean   @default(false) @map("is_deleted")
+  deletedAt                 DateTime? @map("deleted_at")
+  deletedById               String?   @map("deleted_by_id")
+
+  addresses                 CustomerAddress[]
+  contacts                  CustomerContact[]
+  tierPricing               CustomerTierPricing[]
+  orders                    Order[]
+  paymentTermsTemplate      PaymentTermsTemplate? @relation(fields: [paymentTermsTemplateId], references: [id], onDelete: SetNull)
+
+  @@index([customerType])
+  @@index([isActive])
+  @@index([isDeleted])
+  @@index([linkedCustomerAccountId])
+  @@index([paymentTermsTemplateId])
+  @@map("customers")
+  @@schema("sales")
+}
+
+model CustomerAddress {
+  id                  String    @id @default(uuid())
+  customerId          String    @map("customer_id")
+  addressType         String    @map("address_type") // billing | shipping | site | registered
+  contactPerson       String?   @map("contact_person")
+  contactPhone        String?   @map("contact_phone")
+  addressLine1        String    @map("address_line_1")
+  addressLine2        String?   @map("address_line_2")
+  city                String
+  state               String
+  stateCode           String?   @map("state_code") // 2-digit GST state code
+  pincode             String
+  country             String    @default("India")
+  isDefaultBilling    Boolean   @default(false) @map("is_default_billing")
+  isDefaultShipping   Boolean   @default(false) @map("is_default_shipping")
+  notes               String?   @db.Text
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  customer            Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  billingOrders       Order[]   @relation("OrderBillingAddress")
+  shippingOrders      Order[]   @relation("OrderShippingAddress")
+  shipments           OrderShipment[]
+
+  @@index([customerId])
+  @@index([addressType])
+  @@map("customer_addresses")
+  @@schema("sales")
+}
+
+model CustomerContact {
+  id              String    @id @default(uuid())
+  customerId      String    @map("customer_id")
+  contactName     String    @map("contact_name")
+  designation     String?
+  phone           String?
+  email           String?
+  role            String?   // decision_maker | purchase | accounts | site_contact
+  isPrimary       Boolean   @default(false) @map("is_primary")
+  notes           String?   @db.Text
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  customer        Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_contacts")
+  @@schema("sales")
+}
+
+model CustomerTierPricing {
+  id                  String    @id @default(uuid())
+  customerId          String    @map("customer_id")
+  productId           String?   @map("product_id")
+  productCategoryId   String?   @map("product_category_id")
+  discountPercent     Decimal?  @map("discount_percent") @db.Decimal(5, 2)
+  specialPrice        Decimal?  @map("special_price") @db.Decimal(14, 2)
+  validFrom           DateTime? @map("valid_from")
+  validUntil          DateTime? @map("valid_until")
+  notes               String?   @db.Text
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  customer            Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  product             Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productCategory     ProductCategory? @relation(fields: [productCategoryId], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@index([productId])
+  @@index([productCategoryId])
+  @@map("customer_tier_pricing")
+  @@schema("sales")
+}
+
+// -- Product Master (4 tables) ------------------------------------------------
+
+model ProductCategory {
+  id                  String    @id @default(uuid())
+  categoryCode        String    @unique @map("category_code")
+  name                String
+  parentCategoryId    String?   @map("parent_category_id")
+  description         String?   @db.Text
+  displayOrder        Int       @default(0) @map("display_order")
+  isActive            Boolean   @default(true) @map("is_active")
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  createdById         String?   @map("created_by_id")
+  updatedById         String?   @map("updated_by_id")
+
+  parent              ProductCategory?  @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id], onDelete: SetNull)
+  children            ProductCategory[] @relation("CategoryHierarchy")
+  products            Product[]
+  customerTierPricing CustomerTierPricing[]
+
+  @@index([parentCategoryId])
+  @@index([isActive])
+  @@map("product_categories")
+  @@schema("sales")
+}
+
+model Product {
+  id                      String    @id @default(uuid())
+  productCode             String    @unique @map("product_code")
+  productName             String    @map("product_name")
+  categoryId              String    @map("category_id")
+  description             String?   @db.Text
+  standardDimensions      Json?     @map("standard_dimensions") // { L, W, H, D }
+  hsnCode                 String?   @map("hsn_code")
+  basePrice               Decimal   @map("base_price") @db.Decimal(14, 2)
+  uom                     String    @default("PCS") // unit of measure code
+  taxRatePercent          Decimal   @map("tax_rate_percent") @db.Decimal(5, 2)
+  requiresInstallation    Boolean   @default(false) @map("requires_installation")
+  warrantyPeriodMonths    Int?      @map("warranty_period_months")
+  weightKg                Decimal?  @map("weight_kg") @db.Decimal(10, 3)
+  imageUrl                String?   @map("image_url")
+  isCustom                Boolean   @default(false) @map("is_custom")
+  isActive                Boolean   @default(true) @map("is_active")
+  bomId                   String?   @map("bom_id") // Phase 2 — stays null
+
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  createdById             String?   @map("created_by_id")
+  updatedById             String?   @map("updated_by_id")
+  isDeleted               Boolean   @default(false) @map("is_deleted")
+  deletedAt               DateTime? @map("deleted_at")
+  deletedById             String?   @map("deleted_by_id")
+
+  category                ProductCategory       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  sizeVariants            ProductSizeVariant[]
+  tierPricing             ProductTierPricing[]
+  customerTierPricing     CustomerTierPricing[]
+  orderLines              OrderLine[]
+
+  @@index([categoryId])
+  @@index([hsnCode])
+  @@index([isActive])
+  @@index([isDeleted])
+  @@index([isCustom])
+  @@map("products")
+  @@schema("sales")
+}
+
+model ProductSizeVariant {
+  id              String    @id @default(uuid())
+  productId       String    @map("product_id")
+  variantName     String    @map("variant_name")
+  dimensions      Json?     // { L, W, H, D }
+  variantSku      String?   @map("variant_sku")
+  priceOverride   Decimal?  @map("price_override") @db.Decimal(14, 2)
+  weightKg        Decimal?  @map("weight_kg") @db.Decimal(10, 3)
+  isActive        Boolean   @default(true) @map("is_active")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderLines      OrderLine[]
+
+  @@index([productId])
+  @@map("product_size_variants")
+  @@schema("sales")
+}
+
+model ProductTierPricing {
+  id              String    @id @default(uuid())
+  productId       String    @map("product_id")
+  customerType    String    @map("customer_type") // retail | dealer | architect | interior_designer | corporate
+  discountPercent Decimal?  @map("discount_percent") @db.Decimal(5, 2)
+  fixedPrice      Decimal?  @map("fixed_price") @db.Decimal(14, 2)
+  validFrom       DateTime? @map("valid_from")
+  validUntil      DateTime? @map("valid_until")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([customerType])
+  @@map("product_tier_pricing")
+  @@schema("sales")
+}
+
+// -- Order Management (12 tables) ---------------------------------------------
+
+model Order {
+  id                        String    @id @default(uuid())
+  orderNumber               String    @unique @map("order_number")
+  customerId                String    @map("customer_id")
+  orderDate                 DateTime  @map("order_date") @db.Date
+  orderType                 String    @default("regular") @map("order_type") // regular | sample | replacement
+  source                    String    @default("manual") // manual | csv_import | portal | quote_conversion
+  sourceQuoteId             String?   @map("source_quote_id") // Phase 6
+  sourceQuoteVersionId      String?   @map("source_quote_version_id") // Phase 6
+  billingAddressId          String?   @map("billing_address_id")
+  defaultShippingAddressId  String?   @map("default_shipping_address_id")
+  expectedDeliveryDate      DateTime? @map("expected_delivery_date") @db.Date
+  promisedDeliveryDate      DateTime? @map("promised_delivery_date") @db.Date
+  paymentTermsTemplateId    String?   @map("payment_terms_template_id")
+  status                    String    @default("draft") // draft | confirmed | in_production | ready_for_dispatch | dispatched | delivered | installed | completed | cancelled
+  subtotal                  Decimal   @default(0) @db.Decimal(14, 2)
+  totalDiscount             Decimal   @default(0) @map("total_discount") @db.Decimal(14, 2)
+  taxableValue              Decimal   @default(0) @map("taxable_value") @db.Decimal(14, 2)
+  totalTax                  Decimal   @default(0) @map("total_tax") @db.Decimal(14, 2)
+  totalCharges              Decimal   @default(0) @map("total_charges") @db.Decimal(14, 2)
+  grandTotal                Decimal   @default(0) @map("grand_total") @db.Decimal(14, 2)
+  amountPaid                Decimal   @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  amountDue                 Decimal   @default(0) @map("amount_due") @db.Decimal(14, 2)
+  roundOffAmount            Decimal   @default(0) @map("round_off_amount") @db.Decimal(8, 2)
+  placeOfSupplyStateCode    String?   @map("place_of_supply_state_code")
+  isInterstate              Boolean   @default(false) @map("is_interstate")
+  actualMaterialCost        Decimal?  @map("actual_material_cost") @db.Decimal(14, 2) // Phase 4
+  notes                     String?   @db.Text
+  internalNotes             String?   @map("internal_notes") @db.Text
+  createdBy                 String?   @map("created_by")
+  confirmedBy               String?   @map("confirmed_by")
+  confirmedAt               DateTime? @map("confirmed_at")
+
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+  updatedById               String?   @map("updated_by_id")
+  isDeleted                 Boolean   @default(false) @map("is_deleted")
+  deletedAt                 DateTime? @map("deleted_at")
+  deletedById               String?   @map("deleted_by_id")
+
+  customer                  Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  billingAddress            CustomerAddress?  @relation("OrderBillingAddress", fields: [billingAddressId], references: [id], onDelete: SetNull)
+  shippingAddress           CustomerAddress?  @relation("OrderShippingAddress", fields: [defaultShippingAddressId], references: [id], onDelete: SetNull)
+  paymentTermsTemplate      PaymentTermsTemplate? @relation(fields: [paymentTermsTemplateId], references: [id], onDelete: SetNull)
+  lines                     OrderLine[]
+  shipments                 OrderShipment[]
+  paymentSchedule           OrderPaymentSchedule[]
+  documents                 OrderDocument[]
+  statusHistory             OrderStatusHistory[]
+  charges                   OrderCharge[]
+  taxBreakup                OrderTaxBreakup[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([orderDate])
+  @@index([source])
+  @@index([isDeleted])
+  @@index([paymentTermsTemplateId])
+  @@map("orders")
+  @@schema("sales")
+}
+
+model OrderLine {
+  id                        String    @id @default(uuid())
+  orderId                   String    @map("order_id")
+  lineSequence              Int       @map("line_sequence")
+  lineType                  String    @map("line_type") // catalog_product | custom_item | charge_line
+  productId                 String?   @map("product_id")
+  productSizeVariantId      String?   @map("product_size_variant_id")
+  description               String?   @db.Text
+  quantity                  Decimal   @db.Decimal(10, 3)
+  uom                       String    @default("PCS")
+  unitPriceBeforeDiscount   Decimal   @default(0) @map("unit_price_before_discount") @db.Decimal(14, 2)
+  discountType              String    @default("none") @map("discount_type") // none | percent | amount
+  discountValue             Decimal   @default(0) @map("discount_value") @db.Decimal(14, 2)
+  unitPriceFinal            Decimal   @default(0) @map("unit_price_final") @db.Decimal(14, 2)
+  lineSubtotal              Decimal   @default(0) @map("line_subtotal") @db.Decimal(14, 2)
+  hsnCode                   String?   @map("hsn_code")
+  taxRatePercent            Decimal   @default(0) @map("tax_rate_percent") @db.Decimal(5, 2)
+  cgstAmount                Decimal   @default(0) @map("cgst_amount") @db.Decimal(14, 2)
+  sgstAmount                Decimal   @default(0) @map("sgst_amount") @db.Decimal(14, 2)
+  igstAmount                Decimal   @default(0) @map("igst_amount") @db.Decimal(14, 2)
+  lineTaxTotal              Decimal   @default(0) @map("line_tax_total") @db.Decimal(14, 2)
+  lineGrandTotal            Decimal   @default(0) @map("line_grand_total") @db.Decimal(14, 2)
+  customDimensions          Json?     @map("custom_dimensions") // for custom-size orders
+  priceSource               String?   @map("price_source") // manual_override | customer_tier | customer_type_tier | size_variant | base_price
+  bomResolved               Boolean   @default(false) @map("bom_resolved") // Phase 2
+  notes                     String?   @db.Text
+
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+
+  order                     Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product                   Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  sizeVariant               ProductSizeVariant? @relation(fields: [productSizeVariantId], references: [id], onDelete: SetNull)
+  customSpecs               OrderLineCustomSpec[]
+  shipmentLines             OrderShipmentLine[]
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([productSizeVariantId])
+  @@map("order_lines")
+  @@schema("sales")
+}
+
+model OrderLineCustomSpec {
+  id              String    @id @default(uuid())
+  orderLineId     String    @map("order_line_id")
+  specKey         String    @map("spec_key")
+  specValue       String    @map("spec_value")
+  specType        String    @default("other") @map("spec_type") // dimension | finish | material | other
+  notes           String?   @db.Text
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  orderLine       OrderLine @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+
+  @@index([orderLineId])
+  @@map("order_line_custom_specs")
+  @@schema("sales")
+}
+
+model OrderShipment {
+  id                    String    @id @default(uuid())
+  orderId               String    @map("order_id")
+  shipmentNumber        String    @map("shipment_number")
+  shippingAddressId     String?   @map("shipping_address_id")
+  expectedDispatchDate  DateTime? @map("expected_dispatch_date") @db.Date
+  status                String    @default("planned") // planned | ready | dispatched | delivered
+  notes                 String?   @db.Text
+
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  order                 Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  shippingAddress       CustomerAddress?  @relation(fields: [shippingAddressId], references: [id], onDelete: SetNull)
+  shipmentLines         OrderShipmentLine[]
+
+  @@unique([orderId, shipmentNumber])
+  @@index([orderId])
+  @@index([status])
+  @@map("order_shipments")
+  @@schema("sales")
+}
+
+model OrderShipmentLine {
+  id                  String    @id @default(uuid())
+  shipmentId          String    @map("shipment_id")
+  orderLineId         String    @map("order_line_id")
+  quantityInShipment  Decimal   @map("quantity_in_shipment") @db.Decimal(10, 3)
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  shipment            OrderShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  orderLine           OrderLine     @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId])
+  @@index([orderLineId])
+  @@map("order_shipment_lines")
+  @@schema("sales")
+}
+
+model PaymentTermsTemplate {
+  id              String    @id @default(uuid())
+  templateCode    String    @unique @map("template_code")
+  templateName    String    @map("template_name")
+  description     String?   @db.Text
+  isActive        Boolean   @default(true) @map("is_active")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  createdById     String?   @map("created_by_id")
+  updatedById     String?   @map("updated_by_id")
+
+  milestones      PaymentTermMilestone[]
+  customers       Customer[]
+  orders          Order[]
+
+  @@index([isActive])
+  @@map("payment_terms_templates")
+  @@schema("sales")
+}
+
+model PaymentTermMilestone {
+  id                  String    @id @default(uuid())
+  templateId          String    @map("template_id")
+  milestoneSequence   Int       @map("milestone_sequence")
+  milestoneName       String    @map("milestone_name")
+  percentage          Decimal   @db.Decimal(5, 2)
+  triggerEvent        String    @map("trigger_event") // on_order | before_dispatch | on_delivery | after_installation | fixed_days
+  triggerDays         Int?      @map("trigger_days")
+  notes               String?   @db.Text
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  template            PaymentTermsTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, milestoneSequence])
+  @@index([templateId])
+  @@map("payment_term_milestones")
+  @@schema("sales")
+}
+
+model OrderPaymentSchedule {
+  id                      String    @id @default(uuid())
+  orderId                 String    @map("order_id")
+  milestoneSequence       Int       @map("milestone_sequence")
+  milestoneName           String    @map("milestone_name")
+  percentage              Decimal   @db.Decimal(5, 2)
+  amount                  Decimal   @db.Decimal(14, 2)
+  triggerEvent            String    @map("trigger_event")
+  triggerDays             Int?      @map("trigger_days")
+  dueDate                 DateTime? @map("due_date") @db.Date
+  status                  String    @default("pending") // pending | partial | paid | overdue
+  amountPaid              Decimal   @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  paidAt                  DateTime? @map("paid_at")
+  paymentTransactionId    String?   @map("payment_transaction_id")
+  notes                   String?   @db.Text
+
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  order                   Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, milestoneSequence])
+  @@index([orderId])
+  @@index([status])
+  @@map("order_payment_schedule")
+  @@schema("sales")
+}
+
+model OrderDocument {
+  id                String    @id @default(uuid())
+  orderId           String    @map("order_id")
+  documentType      String    @map("document_type") // proforma | sales_order | tax_invoice | payment_receipt
+  documentNumber    String    @map("document_number")
+  pdfFilePath       String?   @map("pdf_file_path")
+  generatedAt       DateTime  @default(now()) @map("generated_at")
+  generatedBy       String?   @map("generated_by")
+  isCancelled       Boolean   @default(false) @map("is_cancelled")
+  cancelledReason   String?   @map("cancelled_reason") @db.Text
+
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  order             Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([documentType, documentNumber])
+  @@index([orderId])
+  @@index([documentType])
+  @@map("order_documents")
+  @@schema("sales")
+}
+
+model OrderStatusHistory {
+  id                          String    @id @default(uuid())
+  orderId                     String    @map("order_id")
+  fromStatus                  String?   @map("from_status")
+  toStatus                    String    @map("to_status")
+  changedBy                   String?   @map("changed_by")
+  changedAt                   DateTime  @default(now()) @map("changed_at")
+  timeInPreviousStatusHours   Decimal?  @map("time_in_previous_status_hours") @db.Decimal(10, 2)
+  notes                       String?   @db.Text
+
+  order                       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([toStatus])
+  @@map("order_status_history")
+  @@schema("sales")
+}
+
+model OrderCharge {
+  id              String    @id @default(uuid())
+  orderId         String    @map("order_id")
+  chargeType      String    @map("charge_type") // transport | installation | packaging | other
+  description     String?   @db.Text
+  amount          Decimal   @db.Decimal(14, 2)
+  isTaxable       Boolean   @default(true) @map("is_taxable")
+  hsnCode         String?   @map("hsn_code")
+  taxRatePercent  Decimal?  @map("tax_rate_percent") @db.Decimal(5, 2)
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_charges")
+  @@schema("sales")
+}
+
+model OrderTaxBreakup {
+  id              String    @id @default(uuid())
+  orderId         String    @map("order_id")
+  hsnCode         String    @map("hsn_code")
+  taxableValue    Decimal   @map("taxable_value") @db.Decimal(14, 2)
+  cgstRate        Decimal   @default(0) @map("cgst_rate") @db.Decimal(5, 2)
+  cgstAmount      Decimal   @default(0) @map("cgst_amount") @db.Decimal(14, 2)
+  sgstRate        Decimal   @default(0) @map("sgst_rate") @db.Decimal(5, 2)
+  sgstAmount      Decimal   @default(0) @map("sgst_amount") @db.Decimal(14, 2)
+  igstRate        Decimal   @default(0) @map("igst_rate") @db.Decimal(5, 2)
+  igstAmount      Decimal   @default(0) @map("igst_amount") @db.Decimal(14, 2)
+  totalTax        Decimal   @default(0) @map("total_tax") @db.Decimal(14, 2)
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([hsnCode])
+  @@map("order_tax_breakup")
+  @@schema("sales")
+}
+
+// -- Supporting (3 tables) ----------------------------------------------------
+
+model OrderImportBatch {
+  id              String    @id @default(uuid())
+  batchCode       String    @unique @map("batch_code")
+  fileName        String    @map("file_name")
+  totalRows       Int       @default(0) @map("total_rows")
+  successCount    Int       @default(0) @map("success_count")
+  errorCount      Int       @default(0) @map("error_count")
+  status          String    @default("processing") // processing | completed | failed
+  importedBy      String?   @map("imported_by")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  errors          OrderImportError[]
+
+  @@index([status])
+  @@map("order_import_batches")
+  @@schema("sales")
+}
+
+model OrderImportError {
+  id              String    @id @default(uuid())
+  batchId         String    @map("batch_id")
+  rowNumber       Int       @map("row_number")
+  field           String?
+  message         String
+  rowData         Json?     @map("row_data")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  batch           OrderImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
+  @@map("order_import_errors")
+  @@schema("sales")
+}
+
+model DocumentSequence {
+  id                  String    @id @default(uuid())
+  documentType        String    @unique @map("document_type") // proforma | sales_order | tax_invoice | payment_receipt
+  seriesCode          String    @map("series_code") // FK-like link to core.numbering_series.series_code
+  prefix              String
+  currentNumber       Int       @default(0) @map("current_number")
+  paddingLength       Int       @default(5) @map("padding_length")
+  resetYearly         Boolean   @default(true) @map("reset_yearly")
+  lastResetAt         DateTime? @map("last_reset_at")
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@map("document_sequences")
+  @@schema("sales")
 }
