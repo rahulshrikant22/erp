@@ -14,4 +14,4 @@ ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["sh", "-c", "echo 'Files:' && ls -la /app/ && echo 'Starting node server.js...' && node server.js"]
