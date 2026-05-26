@@ -30,12 +30,26 @@ jobs:
           BASE_PATH: /erp
         run: npm run build
 
+      - name: Debug standalone output
+        run: |
+          echo "=== standalone root ==="
+          ls -la frontend/.next/standalone/
+          echo "=== looking for server.js ==="
+          find frontend/.next/standalone -name "server.js" -type f
+          echo "=== standalone subdirs ==="
+          ls -la frontend/.next/standalone/*/ 2>/dev/null || true
+
       - name: Package standalone output
         run: |
           mkdir -p /tmp/frontend-pkg/.next
-          cp -r frontend/.next/standalone/* /tmp/frontend-pkg/
+          # Find where server.js actually lives in standalone output
+          SERVER_DIR=$(dirname $(find frontend/.next/standalone -name "server.js" -type f | head -1))
+          echo "Server directory: $SERVER_DIR"
+          cp -r "$SERVER_DIR"/* /tmp/frontend-pkg/ 2>/dev/null || cp -r "$SERVER_DIR"/. /tmp/frontend-pkg/
           cp -r frontend/.next/static /tmp/frontend-pkg/.next/static
           cp -r frontend/public /tmp/frontend-pkg/public 2>/dev/null || mkdir -p /tmp/frontend-pkg/public
+          echo "=== Package contents ==="
+          ls -la /tmp/frontend-pkg/
           cd /tmp/frontend-pkg && tar czf /tmp/frontend-standalone.tar.gz .
 
       - name: Upload as release
