@@ -28,6 +28,7 @@ jobs:
         working-directory: frontend
         env:
           BASE_PATH: /erp
+          BACKEND_INTERNAL_URL: http://erp-backend:4000
         run: npm run build
 
       - name: Package standalone output
