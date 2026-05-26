@@ -32,7 +32,7 @@ jobs:
 
       - name: Package standalone output
         run: |
-          mkdir -p /tmp/frontend-pkg
+          mkdir -p /tmp/frontend-pkg/.next
           cp -r frontend/.next/standalone/* /tmp/frontend-pkg/
           cp -r frontend/.next/static /tmp/frontend-pkg/.next/static
           cp -r frontend/public /tmp/frontend-pkg/public 2>/dev/null || mkdir -p /tmp/frontend-pkg/public
