@@ -1,4 +1,4 @@
-name: Build Frontend Image
+name: Build Frontend
 
 on:
   push:
@@ -7,54 +7,48 @@ on:
       - 'frontend/**'
       - '.github/workflows/frontend-build.yml'
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/frontend
-
 jobs:
-  build-and-push:
+  build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      packages: write
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: actions/setup-node@v4
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          node-version: 20
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-            type=sha,prefix=
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: frontend/Dockerfile.build
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+      - name: Build Next.js standalone
+        working-directory: frontend
+        env:
+          BASE_PATH: /erp
+        run: npm run build
 
-      - name: Make package public
+      - name: Package standalone output
         run: |
-          curl -s -X PATCH \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/user/packages/container/erp%2Ffrontend" \
-            -d '{"visibility": "public"}' || true
+          mkdir -p /tmp/frontend-pkg
+          cp -r frontend/.next/standalone/* /tmp/frontend-pkg/
+          cp -r frontend/.next/static /tmp/frontend-pkg/.next/static
+          cp -r frontend/public /tmp/frontend-pkg/public 2>/dev/null || mkdir -p /tmp/frontend-pkg/public
+          cd /tmp/frontend-pkg && tar czf /tmp/frontend-standalone.tar.gz .
+
+      - name: Upload as release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete frontend-latest --yes --repo ${{ github.repository }} 2>/dev/null || true
+          gh release create frontend-latest /tmp/frontend-standalone.tar.gz \
+            --title "Frontend Build" \
+            --notes "Auto-built Next.js standalone - $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --repo ${{ github.repository }}
 
       - name: Trigger Coolify deploy
-        if: success()
         run: |
           curl -s -X GET \
             "http://${{ secrets.COOLIFY_HOST }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_FRONTEND_UUID }}&force=true" \
