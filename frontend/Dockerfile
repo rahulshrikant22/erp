@@ -14,4 +14,4 @@ ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
 EXPOSE 3000
-CMD ["sh", "-c", "ls -la /app/ > /tmp/debug.log 2>&1 && node server.js >> /tmp/debug.log 2>&1; echo EXIT:$? >> /tmp/debug.log; cat /tmp/debug.log; sleep 3600"]
+CMD ["node", "server.js"]

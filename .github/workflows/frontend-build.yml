@@ -32,13 +32,14 @@ jobs:
 
       - name: Package standalone output
         run: |
-          mkdir -p /tmp/frontend-pkg/.next
-          # Standalone nests app files under frontend/ subdirectory
-          cp -r frontend/.next/standalone/frontend/* /tmp/frontend-pkg/
+          # Copy standalone app (use /. to include hidden dirs like .next)
+          cp -r frontend/.next/standalone/frontend/. /tmp/frontend-pkg/
           cp -r frontend/.next/standalone/node_modules /tmp/frontend-pkg/node_modules
+          # Overlay client-side static assets
           cp -r frontend/.next/static /tmp/frontend-pkg/.next/static
           cp -r frontend/public /tmp/frontend-pkg/public 2>/dev/null || mkdir -p /tmp/frontend-pkg/public
           ls -la /tmp/frontend-pkg/
+          ls -la /tmp/frontend-pkg/.next/
           cd /tmp/frontend-pkg && tar czf /tmp/frontend-standalone.tar.gz .
 
       - name: Upload as release
