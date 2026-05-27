@@ -20,7 +20,7 @@ export const API_BASE_URL =
   typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_BASE_URL
     ? process.env.NEXT_PUBLIC_API_BASE_URL
     : typeof window !== 'undefined'
-      ? ''
+      ? (process.env.NEXT_PUBLIC_BASE_PATH || '')
       : 'http://localhost:4000';
 
 export interface ApiFetchOptions {
