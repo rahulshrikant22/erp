@@ -45,6 +45,17 @@ import productsRouter from './products';
 import productCategoriesRouter from './product-categories';
 import ordersRouter from './orders';
 import paymentTermsRouter from './payment-terms';
+import materialsRouter from './materials';
+import manufacturerCatalogsRouter from './manufacturer-catalogs';
+import { materialImagesRouter, adminMaterialImagesRouter } from './material-images';
+import materialImportRouter from './material-import';
+import processesRouter from './processes';
+import bomsRouter from './boms';
+import selectionListsRouter from './selection-lists';
+import resolvedBomsRouter from './resolved-boms';
+import costingRouter from './costing';
+import reportsRouter from './reports';
+import portalSelectionListsRouter from './portal-selection-lists';
 
 export function registerRoutes(app: Application): void {
   app.use('/api/auth', authRouter);
@@ -89,4 +100,16 @@ export function registerRoutes(app: Application): void {
   app.use('/api/product-categories', productCategoriesRouter);
   app.use('/api/orders', ordersRouter);
   app.use('/api/admin/payment-terms-templates', paymentTermsRouter);
+  app.use('/api/material', materialImportRouter);
+  app.use('/api/material', materialsRouter);
+  app.use('/api/material', manufacturerCatalogsRouter);
+  app.use('/api/material', materialImagesRouter);
+  app.use('/api/admin/material', adminMaterialImagesRouter);
+  app.use('/api/processes', processesRouter);
+  app.use('/api/boms', bomsRouter);
+  app.use('/api/selection-lists', selectionListsRouter);
+  app.use('/api/resolved-boms', resolvedBomsRouter);
+  app.use('/api/costing', costingRouter);
+  app.use('/api/reports', reportsRouter);
+  app.use('/api/portal/selection-lists', portalSelectionListsRouter);
 }

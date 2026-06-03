@@ -14,6 +14,8 @@
  *          `npx prisma migrate reset` (which calls the seed config below).
  */
 import { PrismaClient } from '@prisma/client';
+import { seedMaterialMaster } from './seed-material';
+import { seedProcesses } from './seed-processes';
 
 const prisma = new PrismaClient();
 
@@ -58,9 +60,10 @@ const MODULES = [
 
   // Phase 2 — Product Engineering
   { moduleCode: 'MATERIAL',       name: 'Material Master',           category: 'engineering', isCore: false, isBypassable: false, displayOrder: 300 },
-  { moduleCode: 'PROCESS',        name: 'Process Master',            category: 'engineering', isCore: false, isBypassable: false, displayOrder: 310 },
-  { moduleCode: 'BOM',            name: 'BOM Management',            category: 'engineering', isCore: false, isBypassable: false, displayOrder: 320 },
-  { moduleCode: 'COSTING',        name: 'Costing & Pricing',         category: 'engineering', isCore: false, isBypassable: false, displayOrder: 330 },
+  { moduleCode: 'PROCESS',        name: 'Process Master',            category: 'engineering', isCore: true,  isBypassable: false, displayOrder: 310 },
+  { moduleCode: 'BOM',            name: 'BOM Management',            category: 'engineering', isCore: true,  isBypassable: false, displayOrder: 320 },
+  { moduleCode: 'SEL_LIST',       name: 'Selection List',            category: 'engineering', isCore: false, isBypassable: true,  displayOrder: 325 },
+  { moduleCode: 'COSTING',        name: 'Costing & Pricing',         category: 'engineering', isCore: true,  isBypassable: false, displayOrder: 330 },
 
   // Phase 3 — Supply Chain
   { moduleCode: 'VENDOR',         name: 'Vendor Master',             category: 'procurement', isCore: false, isBypassable: false, displayOrder: 400 },
@@ -91,6 +94,9 @@ const NUMBERING_SERIES = [
   { seriesCode: 'MIN',  name: 'Material Issue Note',  prefix: 'MIN',  paddingLength: 5 },
   { seriesCode: 'DC',   name: 'Delivery Challan',     prefix: 'DC',   paddingLength: 5 },
   { seriesCode: 'CERT', name: 'Certificate',          prefix: 'CERT', paddingLength: 4 },
+  { seriesCode: 'BOM',  name: 'BOM Code',              prefix: 'BOM',  paddingLength: 4 },
+  { seriesCode: 'SL',   name: 'Selection List',         prefix: 'SL',   paddingLength: 4 },
+  { seriesCode: 'COST', name: 'Costing Run',            prefix: 'COST', paddingLength: 4 },
 ] as const;
 
 const SYSTEM_SETTINGS = [
@@ -108,6 +114,13 @@ const SYSTEM_SETTINGS = [
 
   { settingKey: 'comm.email.test_mode',                  settingValue: 'true',        dataType: 'boolean', category: 'comm',   description: 'Suppress real email sends; route to dev sink',                 isUserEditable: true },
   { settingKey: 'audit.retention_days',                  settingValue: '730',         dataType: 'integer', category: 'audit',  description: 'How long to retain audit_logs before archive (2 years)',         isUserEditable: false },
+
+  // Phase 2 — Product Engineering
+  { settingKey: 'bom.lock_at_production_start',          settingValue: 'true',        dataType: 'boolean', category: 'bom',     description: 'Lock BOM version when production starts for an order',           isUserEditable: true },
+  { settingKey: 'bom.always_latest_override_role',       settingValue: '',            dataType: 'string',  category: 'bom',     description: 'Role that can force-use latest BOM version (empty = super_admin only)', isUserEditable: true },
+  { settingKey: 'costing.overhead_default_percent',      settingValue: '15.0',        dataType: 'decimal', category: 'costing', description: 'Default overhead percentage for costing runs',                    isUserEditable: true },
+  { settingKey: 'costing.margin_default_percent',        settingValue: '30.0',        dataType: 'decimal', category: 'costing', description: 'Default margin percentage for costing runs',                      isUserEditable: true },
+  { settingKey: 'costing.labor_rate_default_per_hour',   settingValue: '150',         dataType: 'decimal', category: 'costing', description: 'Default labor rate per hour in INR',                              isUserEditable: true },
 ] as const;
 
 async function seedOrganization(): Promise<void> {
@@ -189,7 +202,7 @@ async function seedNumberingSeries(): Promise<void> {
     });
   }
   const total = await prisma.numberingSeries.count();
-  console.log(`numbering series  : ${total} (target 11)`);
+  console.log(`numbering series  : ${total} (target 14)`);
 }
 
 // =============================================================================
@@ -227,6 +240,7 @@ const ACTIONS_BY_MODULE: Record<string, readonly string[]> = {
   MATERIAL:       ['view', 'create', 'edit', 'delete'],
   PROCESS:        ['view', 'create', 'edit', 'delete'],
   BOM:            ['view', 'create', 'edit', 'delete', 'approve'],
+  SEL_LIST:       ['view', 'create', 'edit', 'delete', 'approve'],
   COSTING:        ['view', 'create', 'edit'],
   VENDOR:         ['view', 'create', 'edit', 'delete'],
   STORAGE:        ['view', 'create', 'edit', 'delete'],
@@ -776,6 +790,22 @@ async function seedPaymentTermsTemplates(): Promise<void> {
   console.log(`payment terms     : ${total} templates (target ${PAYMENT_TERMS_TEMPLATES.length})`);
 }
 
+async function seedCostingAssumptions(): Promise<void> {
+  const assumptions = [
+    { key: 'overhead_percent_default', value: '15.0' },
+    { key: 'margin_percent_default', value: '30.0' },
+    { key: 'labor_rate_default_per_hour', value: '150' },
+  ];
+  for (const a of assumptions) {
+    await prisma.costingAssumption.upsert({
+      where: { key: a.key },
+      update: { value: a.value },
+      create: { key: a.key, value: a.value },
+    });
+  }
+  console.log(`costing assumptions: ${assumptions.length}`);
+}
+
 async function main(): Promise<void> {
   console.log('--- foundation seed ---');
   await seedOrganization();
@@ -788,6 +818,9 @@ async function main(): Promise<void> {
   await seedRolePermissions(baseline);
   await seedCommunicationTemplates();
   await seedPaymentTermsTemplates();
+  await seedMaterialMaster();
+  await seedProcesses();
+  await seedCostingAssumptions();
   console.log('-----------------------');
   console.log('seed complete.');
 }

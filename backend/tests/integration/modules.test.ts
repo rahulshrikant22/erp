@@ -3,7 +3,7 @@
  *
  * IMPORTANT: tests in this file mutate `core.modules.is_active`. Each test
  * that toggles MUST restore the module to its prior state in `afterEach`
- * so subsequent tests see a known baseline. The seed leaves all 35 modules
+ * so subsequent tests see a known baseline. The seed leaves all 36 modules
  * active by default.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -50,9 +50,9 @@ function dirty(...codes: string[]): void {
 }
 
 describe('Module service — queries', () => {
-  it('listModules returns all 35 with correct shape', async () => {
+  it('listModules returns all 36 with correct shape', async () => {
     const list = await listModules();
-    expect(list.length).toBe(35);
+    expect(list.length).toBe(36);
     expect(list.find((m) => m.moduleCode === 'AUTH')?.isCore).toBe(true);
     expect(list.find((m) => m.moduleCode === 'QC')?.isBypassable).toBe(true);
   });
@@ -134,11 +134,9 @@ describe('Module service — mutations', () => {
   });
 
   it('activate fails if hard dependencies are inactive', async () => {
-    // Walk down the dep chain so PRODUCT has no active dependents:
-    //   ORDER and BOM both depend on PRODUCT. BOM also has dependents (COSTING, PRODUCTION),
-    //   PRODUCTION has dependents (PANEL_QR hard; NESTING/JOB_WORK soft).
-    // Order matters: bring leaves down first.
-    const path = ['PANEL_QR', 'PRODUCTION', 'COSTING', 'BOM', 'ORDER', 'PRODUCT'];
+    // PURCHASE depends on VENDOR (hard). GRN and IMPORT depend on PURCHASE (hard).
+    // Deactivate leaves first, then PURCHASE, then VENDOR.
+    const path = ['IMPORT', 'GRN', 'PURCHASE', 'VENDOR'];
     dirty(...path);
     for (const code of path) {
       await deactivateModule({ moduleCode: code, reason: 'cascade for test' });
@@ -146,13 +144,13 @@ describe('Module service — mutations', () => {
 
     let err: unknown;
     try {
-      await activateModule({ moduleCode: 'BOM' });
+      await activateModule({ moduleCode: 'PURCHASE' });
     } catch (e) {
       err = e;
     }
     const e = err as { httpStatus: number; details: { missing: string[] } };
     expect(e.httpStatus).toBe(409);
-    expect(e.details.missing).toEqual(expect.arrayContaining(['PRODUCT']));
+    expect(e.details.missing).toEqual(expect.arrayContaining(['VENDOR']));
   });
 });
 
@@ -190,7 +188,7 @@ describe('HTTP routes', () => {
       .get('/api/modules')
       .set('Authorization', `Bearer ${tokens.accessToken}`);
     expect(res.status).toBe(200);
-    expect(res.body.data.modules.length).toBe(35);
+    expect(res.body.data.modules.length).toBe(36);
   });
 
   it('GET /api/modules/growth-path returns stages', async () => {

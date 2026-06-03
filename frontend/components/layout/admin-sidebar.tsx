@@ -26,6 +26,9 @@ import {
   UserCircle,
   Package,
   ShoppingCart,
+  Hammer,
+  Calculator,
+  ClipboardList,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { EffectivePermissions } from '@/lib/types';
@@ -112,6 +115,52 @@ const NAV: NavGroup[] = [
         label: 'Orders',
         icon: ShoppingCart,
         requires: ['ORDER:order:view'],
+      },
+    ],
+  },
+  {
+    label: 'Materials',
+    items: [
+      {
+        href: '/admin/material/categories',
+        label: 'Categories & Profiles',
+        icon: Layers,
+        requires: ['MATERIAL:material:view'],
+      },
+      {
+        href: '/admin/material/materials',
+        label: 'Materials',
+        icon: Hammer,
+        requires: ['MATERIAL:material:view'],
+      },
+    ],
+  },
+  {
+    label: 'Engineering',
+    items: [
+      {
+        href: '/admin/processes',
+        label: 'Processes',
+        icon: Hammer,
+        requires: ['PROCESS:process:view'],
+      },
+      {
+        href: '/admin/boms',
+        label: 'Bill of Materials',
+        icon: Boxes,
+        requires: ['BOM:bom:view'],
+      },
+      {
+        href: '/admin/selection-lists',
+        label: 'Selection Lists',
+        icon: ClipboardList,
+        requires: ['SEL_LIST:sel_list:view'],
+      },
+      {
+        href: '/admin/costing',
+        label: 'Costing',
+        icon: Calculator,
+        requires: ['COSTING:costing:view'],
       },
     ],
   },

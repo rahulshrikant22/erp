@@ -27,10 +27,15 @@
     "db:studio": "npm run db:studio --workspace=backend"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
     "npm-run-all": "^4.1.5"
   },
   "engines": {
     "node": ">=20.0.0",
     "npm": ">=10.0.0"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.17",
+    "sharp": "^0.34.5"
   }
 }

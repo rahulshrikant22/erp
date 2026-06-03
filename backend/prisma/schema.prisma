@@ -30,7 +30,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["core", "sales"]
+  schemas  = ["core", "sales", "material", "product_engineering"]
 }
 
 // =============================================================================
@@ -1511,6 +1511,7 @@ model Product {
   tierPricing             ProductTierPricing[]
   customerTierPricing     CustomerTierPricing[]
   orderLines              OrderLine[]
+  boms                    Bom[]
 
   @@index([categoryId])
   @@index([hsnCode])
@@ -1536,6 +1537,7 @@ model ProductSizeVariant {
 
   product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
   orderLines      OrderLine[]
+  boms            Bom[]
 
   @@index([productId])
   @@map("product_size_variants")
@@ -1615,6 +1617,8 @@ model Order {
   statusHistory             OrderStatusHistory[]
   charges                   OrderCharge[]
   taxBreakup                OrderTaxBreakup[]
+  selectionLists            SelectionList[]
+  resolvedBoms              ResolvedBom[]
 
   @@index([customerId])
   @@index([status])
@@ -1661,6 +1665,8 @@ model OrderLine {
   sizeVariant               ProductSizeVariant? @relation(fields: [productSizeVariantId], references: [id], onDelete: SetNull)
   customSpecs               OrderLineCustomSpec[]
   shipmentLines             OrderShipmentLine[]
+  selectionListItems        SelectionListItem[]
+  resolvedBoms              ResolvedBom[]
 
   @@index([orderId])
   @@index([productId])
@@ -1937,4 +1943,847 @@ model DocumentSequence {
 
   @@map("document_sequences")
   @@schema("sales")
+}
+
+// =============================================================================
+// SECTION — MATERIAL SCHEMA (Phase 2 — 17 Tables)
+// Per MATERIAL_MASTER_DESIGN_LOCK.md Part 3
+// =============================================================================
+
+// -- Group A: Classification (3 tables) ----------------------------------------
+
+model MaterialCategory {
+  id            String    @id @default(uuid())
+  categoryCode  String    @unique @map("category_code")
+  name          String
+  description   String?   @db.Text
+  displayOrder  Int       @default(0) @map("display_order")
+  icon          String?
+  isActive      Boolean   @default(true) @map("is_active")
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  createdById   String?   @map("created_by_id")
+  updatedById   String?   @map("updated_by_id")
+
+  profiles      MaterialCategoryTypeProfile[]
+  materials     Material[]
+  imageRule     MaterialCategoryImageRule?
+  bomMaterialLines BomMaterialLine[]
+
+  @@index([isActive])
+  @@map("categories")
+  @@schema("material")
+}
+
+model MaterialType {
+  id                String    @id @default(uuid())
+  typeCode          String    @unique @map("type_code")
+  name              String
+  description       String?   @db.Text
+  inventoryBehavior Json?     @map("inventory_behavior")
+  displayOrder      Int       @default(0) @map("display_order")
+  isActive          Boolean   @default(true) @map("is_active")
+
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  profiles          MaterialCategoryTypeProfile[]
+  materials         Material[]
+  bomMaterialLines  BomMaterialLine[]
+
+  @@index([isActive])
+  @@map("material_types")
+  @@schema("material")
+}
+
+model MaterialCategoryTypeProfile {
+  id              String    @id @default(uuid())
+  categoryId      String    @map("category_id")
+  materialTypeId  String    @map("material_type_id")
+  profileName     String    @map("profile_name")
+  isActive        Boolean   @default(true) @map("is_active")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  category        MaterialCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  materialType    MaterialType     @relation(fields: [materialTypeId], references: [id], onDelete: Restrict)
+  attributes      MaterialAttribute[]
+  namingFormats   MaterialNamingFormat[]
+  materials       Material[]
+
+  @@unique([categoryId, materialTypeId])
+  @@index([categoryId])
+  @@index([materialTypeId])
+  @@index([isActive])
+  @@map("category_type_profiles")
+  @@schema("material")
+}
+
+// -- Group B: Attributes (4 tables) -------------------------------------------
+
+model MaterialAttribute {
+  id                      String    @id @default(uuid())
+  categoryTypeProfileId   String    @map("category_type_profile_id")
+  attributeCode           String    @map("attribute_code")
+  label                   String
+  fieldType               String    @map("field_type")
+  displayOrder            Int       @default(0) @map("display_order")
+  displayGroup            String?   @map("display_group")
+  isRequired              Boolean   @default(false) @map("is_required")
+  isIdentity              Boolean   @default(false) @map("is_identity")
+  feedsName               Boolean   @default(false) @map("feeds_name")
+  feedsSku                Boolean   @default(false) @map("feeds_sku")
+  namePosition            Int?      @map("name_position")
+  skuPosition             Int?      @map("sku_position")
+  isManufacturerScoped    Boolean   @default(false) @map("is_manufacturer_scoped")
+  defaultValue            String?   @map("default_value")
+  placeholder             String?
+  helpText                String?   @map("help_text") @db.Text
+  isActive                Boolean   @default(true) @map("is_active")
+
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  createdById             String?   @map("created_by_id")
+  updatedById             String?   @map("updated_by_id")
+
+  profile                 MaterialCategoryTypeProfile @relation(fields: [categoryTypeProfileId], references: [id], onDelete: Cascade)
+  values                  MaterialAttributeValue[]
+  visibilityRulesAsTarget MaterialAttributeVisibilityRule[] @relation("VisibilityTarget")
+  visibilityRulesAsSource MaterialAttributeVisibilityRule[] @relation("VisibilitySource")
+  valueDepsAsTarget       MaterialAttributeValueDependency[] @relation("ValueDepTarget")
+  valueDepsAsSource       MaterialAttributeValueDependency[] @relation("ValueDepSource")
+  materialValues          MaterialMaterialAttributeValue[]
+
+  @@unique([categoryTypeProfileId, attributeCode])
+  @@index([categoryTypeProfileId])
+  @@index([isActive])
+  @@index([isIdentity])
+  @@map("attributes")
+  @@schema("material")
+}
+
+model MaterialAttributeValue {
+  id              String    @id @default(uuid())
+  attributeId     String    @map("attribute_id")
+  valueLabel      String    @map("value_label")
+  valueShortCode  String    @map("value_short_code")
+  displayOrder    Int       @default(0) @map("display_order")
+  manufacturerId  String?   @map("manufacturer_id")
+  swatchImagePath String?   @map("swatch_image_path")
+  hexColor        String?   @map("hex_color")
+  isActive        Boolean   @default(true) @map("is_active")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  createdById     String?   @map("created_by_id")
+  updatedById     String?   @map("updated_by_id")
+
+  attribute       MaterialAttribute    @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  manufacturer    MaterialManufacturer? @relation(fields: [manufacturerId], references: [id], onDelete: SetNull)
+  materialValues  MaterialMaterialAttributeValue[]
+
+  @@index([attributeId])
+  @@index([manufacturerId])
+  @@index([isActive])
+  @@map("attribute_values")
+  @@schema("material")
+}
+
+model MaterialAttributeVisibilityRule {
+  id                    String    @id @default(uuid())
+  attributeId           String    @map("attribute_id")
+  dependsOnAttributeId  String    @map("depends_on_attribute_id")
+  conditionOperator     String    @map("condition_operator")
+  conditionValues       Json      @map("condition_values")
+  action                String
+
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  attribute             MaterialAttribute @relation("VisibilityTarget", fields: [attributeId], references: [id], onDelete: Cascade)
+  dependsOnAttribute    MaterialAttribute @relation("VisibilitySource", fields: [dependsOnAttributeId], references: [id], onDelete: Cascade)
+
+  @@index([attributeId])
+  @@index([dependsOnAttributeId])
+  @@map("attribute_visibility_rules")
+  @@schema("material")
+}
+
+model MaterialAttributeValueDependency {
+  id                    String    @id @default(uuid())
+  attributeId           String    @map("attribute_id")
+  dependsOnAttributeId  String    @map("depends_on_attribute_id")
+  filterMap             Json      @map("filter_map")
+
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  attribute             MaterialAttribute @relation("ValueDepTarget", fields: [attributeId], references: [id], onDelete: Cascade)
+  dependsOnAttribute    MaterialAttribute @relation("ValueDepSource", fields: [dependsOnAttributeId], references: [id], onDelete: Cascade)
+
+  @@index([attributeId])
+  @@index([dependsOnAttributeId])
+  @@map("attribute_value_dependencies")
+  @@schema("material")
+}
+
+// -- Group C: Manufacturers & Catalog (3 tables) ------------------------------
+
+model MaterialManufacturer {
+  id                String    @id @default(uuid())
+  manufacturerCode  String    @unique @map("manufacturer_code")
+  name              String
+  description       String?   @db.Text
+  website           String?
+  isActive          Boolean   @default(true) @map("is_active")
+
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  createdById       String?   @map("created_by_id")
+  updatedById       String?   @map("updated_by_id")
+  isDeleted         Boolean   @default(false) @map("is_deleted")
+  deletedAt         DateTime? @map("deleted_at")
+  deletedById       String?   @map("deleted_by_id")
+
+  catalogs          MaterialManufacturerCatalog[]
+  attributeValues   MaterialAttributeValue[]
+  materials         Material[]
+
+  @@index([isActive])
+  @@index([isDeleted])
+  @@map("manufacturers")
+  @@schema("material")
+}
+
+model MaterialManufacturerCatalog {
+  id                    String    @id @default(uuid())
+  manufacturerId        String    @map("manufacturer_id")
+  catalogType           String    @map("catalog_type")
+  code                  String
+  name                  String
+  additionalAttributes  Json?     @map("additional_attributes")
+  referenceImagePath    String?   @map("reference_image_path")
+  isActive              Boolean   @default(true) @map("is_active")
+
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  createdById           String?   @map("created_by_id")
+  updatedById           String?   @map("updated_by_id")
+
+  manufacturer          MaterialManufacturer @relation(fields: [manufacturerId], references: [id], onDelete: Restrict)
+
+  @@unique([manufacturerId, catalogType, code])
+  @@index([manufacturerId])
+  @@index([catalogType])
+  @@index([isActive])
+  @@map("manufacturer_catalogs")
+  @@schema("material")
+}
+
+model MaterialCatalogImportBatch {
+  id              String    @id @default(uuid())
+  manufacturerId  String    @map("manufacturer_id")
+  catalogType     String    @map("catalog_type")
+  sourceFilename  String    @map("source_filename")
+  totalRows       Int       @default(0) @map("total_rows")
+  successRows     Int       @default(0) @map("success_rows")
+  failedRows      Int       @default(0) @map("failed_rows")
+  status          String    @default("processing")
+  uploadedBy      String?   @map("uploaded_by")
+  uploadedAt      DateTime  @default(now()) @map("uploaded_at")
+  errorLogPath    String?   @map("error_log_path")
+
+  @@index([manufacturerId])
+  @@index([status])
+  @@map("catalog_import_batches")
+  @@schema("material")
+}
+
+// -- Group D: Format Configuration (1 table) ----------------------------------
+
+model MaterialNamingFormat {
+  id                      String    @id @default(uuid())
+  categoryTypeProfileId   String    @map("category_type_profile_id")
+  formatType              String    @map("format_type")
+  formatTemplate          Json      @map("format_template")
+  separator               String    @default("-")
+  previewExample          String?   @map("preview_example")
+  isActive                Boolean   @default(true) @map("is_active")
+
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  createdById             String?   @map("created_by_id")
+  updatedById             String?   @map("updated_by_id")
+
+  profile                 MaterialCategoryTypeProfile @relation(fields: [categoryTypeProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryTypeProfileId, formatType])
+  @@index([categoryTypeProfileId])
+  @@map("naming_formats")
+  @@schema("material")
+}
+
+// -- Group E: Materials (4 tables) --------------------------------------------
+
+model Material {
+  id                      String    @id @default(uuid())
+  materialCode            String    @unique @map("material_code")
+  materialName            String    @map("material_name")
+  categoryId              String    @map("category_id")
+  materialTypeId          String    @map("material_type_id")
+  categoryTypeProfileId   String    @map("category_type_profile_id")
+  manufacturerId          String    @map("manufacturer_id")
+  attributeHash           String    @unique @map("attribute_hash")
+  purchaseUom             String    @map("purchase_uom")
+  consumptionUom          String    @map("consumption_uom")
+  uomConversionFactor     Decimal   @default(1) @map("uom_conversion_factor") @db.Decimal(12, 4)
+  minStockLevel           Decimal?  @map("min_stock_level") @db.Decimal(14, 3)
+  reorderLevel            Decimal?  @map("reorder_level") @db.Decimal(14, 3)
+  maxStockLevel           Decimal?  @map("max_stock_level") @db.Decimal(14, 3)
+  primaryImagePath        String?   @map("primary_image_path")
+  hasPendingImage         Boolean   @default(false) @map("has_pending_image")
+  isActive                Boolean   @default(true) @map("is_active")
+  notes                   String?   @db.Text
+
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  createdById             String?   @map("created_by_id")
+  updatedById             String?   @map("updated_by_id")
+  isDeleted               Boolean   @default(false) @map("is_deleted")
+  deletedAt               DateTime? @map("deleted_at")
+  deletedById             String?   @map("deleted_by_id")
+
+  category                MaterialCategory            @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  materialType            MaterialType                @relation(fields: [materialTypeId], references: [id], onDelete: Restrict)
+  profile                 MaterialCategoryTypeProfile @relation(fields: [categoryTypeProfileId], references: [id], onDelete: Restrict)
+  manufacturer            MaterialManufacturer        @relation(fields: [manufacturerId], references: [id], onDelete: Restrict)
+  attributeValues         MaterialMaterialAttributeValue[]
+  images                  MaterialImage[]
+  bomMaterialLines        BomMaterialLine[]
+  selectionListItems      SelectionListItem[]
+  resolvedBomMaterialLines ResolvedBomMaterialLine[]
+
+  @@index([categoryId])
+  @@index([materialTypeId])
+  @@index([categoryTypeProfileId])
+  @@index([manufacturerId])
+  @@index([isActive])
+  @@index([isDeleted])
+  @@index([hasPendingImage])
+  @@map("materials")
+  @@schema("material")
+}
+
+model MaterialMaterialAttributeValue {
+  id                String    @id @default(uuid())
+  materialId        String    @map("material_id")
+  attributeId       String    @map("attribute_id")
+  attributeValueId  String?   @map("attribute_value_id")
+  rawValue          String?   @map("raw_value")
+
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  material          Material               @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  attribute         MaterialAttribute      @relation(fields: [attributeId], references: [id], onDelete: Restrict)
+  attributeValue    MaterialAttributeValue? @relation(fields: [attributeValueId], references: [id], onDelete: SetNull)
+
+  @@unique([materialId, attributeId])
+  @@index([materialId])
+  @@index([attributeId])
+  @@index([attributeValueId])
+  @@map("material_attribute_values")
+  @@schema("material")
+}
+
+model MaterialImage {
+  id            String    @id @default(uuid())
+  materialId    String    @map("material_id")
+  imagePath     String    @map("image_path")
+  imageType     String    @map("image_type")
+  isPrimary     Boolean   @default(false) @map("is_primary")
+  displayOrder  Int       @default(0) @map("display_order")
+  uploadedBy    String?   @map("uploaded_by")
+  uploadedAt    DateTime  @default(now()) @map("uploaded_at")
+
+  material      Material  @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@index([materialId])
+  @@index([imageType])
+  @@map("material_images")
+  @@schema("material")
+}
+
+model MaterialCategoryImageRule {
+  id                String    @id @default(uuid())
+  categoryId        String    @unique @map("category_id")
+  imageRequirement  String    @map("image_requirement")
+
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  category          MaterialCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@map("category_image_rules")
+  @@schema("material")
+}
+
+// -- Group F: Import (2 tables) -----------------------------------------------
+
+model MaterialImportBatch {
+  id              String    @id @default(uuid())
+  categoryId      String?   @map("category_id")
+  materialTypeId  String?   @map("material_type_id")
+  sourceFilename  String    @map("source_filename")
+  totalRows       Int       @default(0) @map("total_rows")
+  successRows     Int       @default(0) @map("success_rows")
+  failedRows      Int       @default(0) @map("failed_rows")
+  status          String    @default("processing")
+  onDuplicate     String    @default("skip") @map("on_duplicate")
+  importedBy      String?   @map("imported_by")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  errors          MaterialImportError[]
+
+  @@index([status])
+  @@map("material_import_batches")
+  @@schema("material")
+}
+
+model MaterialImportError {
+  id          String    @id @default(uuid())
+  batchId     String    @map("batch_id")
+  rowNumber   Int       @map("row_number")
+  field       String?
+  message     String
+  rowData     Json?     @map("row_data")
+  correctedData Json?   @map("corrected_data")
+  isResolved  Boolean   @default(false) @map("is_resolved")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  batch       MaterialImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
+  @@index([isResolved])
+  @@map("material_import_errors")
+  @@schema("material")
+}
+
+// =============================================================================
+// PRODUCT ENGINEERING SCHEMA — Processes, BOM, Selection Lists, Costing
+// =============================================================================
+
+model Process {
+  id                          String    @id @default(uuid())
+  processCode                 String    @unique @map("process_code")
+  processName                 String    @map("process_name")
+  processCategory             String    @map("process_category") // cutting | edge_banding | drilling | lamination | sanding | assembly | finishing | outsource
+  standardTimeMinutes         Decimal?  @map("standard_time_minutes") @db.Decimal(10, 2)
+  timeUnit                    String    @default("per_panel") @map("time_unit") // per_panel | per_sheet | per_job
+  laborCostPerHour            Decimal?  @map("labor_cost_per_hour") @db.Decimal(10, 2)
+  machineCostPerHour          Decimal?  @map("machine_cost_per_hour") @db.Decimal(10, 2)
+  isOutsourced                Boolean   @default(false) @map("is_outsourced")
+  defaultOutsourceVendorNotes String?   @map("default_outsource_vendor_notes") @db.Text
+  stationId                   String?   @map("station_id") // Phase 4 FK placeholder
+  isActive                    Boolean   @default(true) @map("is_active")
+
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
+  createdById                 String?   @map("created_by_id")
+  updatedById                 String?   @map("updated_by_id")
+
+  capabilities                ProcessCapability[]
+  bomProcessLines             BomProcessLine[]
+  resolvedBomProcessLines     ResolvedBomProcessLine[]
+
+  @@index([processCategory])
+  @@index([isActive])
+  @@map("processes")
+  @@schema("product_engineering")
+}
+
+model ProcessCapability {
+  id               String    @id @default(uuid())
+  processId        String    @map("process_id")
+  capabilityKey    String    @map("capability_key")
+  capabilityValue  String    @map("capability_value")
+
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  process          Process   @relation(fields: [processId], references: [id], onDelete: Cascade)
+
+  @@index([processId])
+  @@map("process_capabilities")
+  @@schema("product_engineering")
+}
+
+model Bom {
+  id                      String    @id @default(uuid())
+  bomCode                 String    @unique @map("bom_code")
+  productId               String    @map("product_id")
+  productSizeVariantId    String?   @map("product_size_variant_id")
+  bomName                 String    @map("bom_name")
+  description             String?   @db.Text
+  bomPurpose              String    @default("estimation_and_po") @map("bom_purpose") // estimation_and_po | informational
+  status                  String    @default("draft") // draft | active | superseded | archived
+  currentVersion          Int       @default(0) @map("current_version")
+  isLockedForOrders       Boolean   @default(false) @map("is_locked_for_orders")
+  createdBy               String?   @map("created_by")
+  approvedBy              String?   @map("approved_by")
+  approvedAt              DateTime? @map("approved_at")
+
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  createdById             String?   @map("created_by_id")
+  updatedById             String?   @map("updated_by_id")
+  isDeleted               Boolean   @default(false) @map("is_deleted")
+  deletedAt               DateTime? @map("deleted_at")
+  deletedById             String?   @map("deleted_by_id")
+
+  product                 Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  sizeVariant             ProductSizeVariant? @relation(fields: [productSizeVariantId], references: [id], onDelete: SetNull)
+  versions                BomVersion[]
+  changeLogs              BomChangeLog[]
+  childOf                 BomSubassembly[]   @relation("ChildBom")
+
+  @@index([productId])
+  @@index([productSizeVariantId])
+  @@index([status])
+  @@index([isDeleted])
+  @@map("boms")
+  @@schema("product_engineering")
+}
+
+model BomVersion {
+  id                       String    @id @default(uuid())
+  bomId                    String    @map("bom_id")
+  versionNumber            Int       @map("version_number")
+  versionStatus            String    @default("draft") @map("version_status") // draft | approved | superseded
+  supersedesVersionId      String?   @map("supersedes_version_id")
+  revisionSummary          String?   @map("revision_summary") @db.Text
+  approvedBy               String?   @map("approved_by")
+  approvedAt               DateTime? @map("approved_at")
+  lockedAtProductionStart  DateTime? @map("locked_at_production_start")
+
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+  createdById              String?   @map("created_by_id")
+  updatedById              String?   @map("updated_by_id")
+  isDeleted                Boolean   @default(false) @map("is_deleted")
+  deletedAt                DateTime? @map("deleted_at")
+  deletedById              String?   @map("deleted_by_id")
+
+  bom                      Bom           @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  supersedesVersion        BomVersion?   @relation("VersionSupersession", fields: [supersedesVersionId], references: [id], onDelete: SetNull)
+  supersededBy             BomVersion[]  @relation("VersionSupersession")
+  materialLines            BomMaterialLine[]
+  processLines             BomProcessLine[]
+  subassemblies            BomSubassembly[]
+  changeLogs               BomChangeLog[]
+  resolvedBoms             ResolvedBom[]
+  costingRuns              CostingRun[]
+
+  @@unique([bomId, versionNumber])
+  @@index([bomId])
+  @@index([versionStatus])
+  @@index([isDeleted])
+  @@map("bom_versions")
+  @@schema("product_engineering")
+}
+
+model BomMaterialLine {
+  id                    String    @id @default(uuid())
+  bomVersionId          String    @map("bom_version_id")
+  lineSequence          Int       @map("line_sequence")
+  lineType              String    @default("primary") @map("line_type") // primary | alternate
+  alternateGroupId      String?   @map("alternate_group_id")
+  materialCategoryId    String?   @map("material_category_id")
+  materialTypeId        String?   @map("material_type_id")
+  specificMaterialId    String?   @map("specific_material_id")
+  isFinishDependent     Boolean   @default(false) @map("is_finish_dependent")
+  quantityPerUnit       Decimal   @map("quantity_per_unit") @db.Decimal(14, 4)
+  uom                   String    @default("PCS")
+  wastagePercent        Decimal   @default(0) @map("wastage_percent") @db.Decimal(5, 2)
+  notes                 String?   @db.Text
+
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  bomVersion            BomVersion        @relation(fields: [bomVersionId], references: [id], onDelete: Cascade)
+  materialCategory      MaterialCategory? @relation(fields: [materialCategoryId], references: [id], onDelete: SetNull)
+  materialType          MaterialType?     @relation(fields: [materialTypeId], references: [id], onDelete: SetNull)
+  specificMaterial      Material?         @relation(fields: [specificMaterialId], references: [id], onDelete: SetNull)
+  selectionListItems    SelectionListItem[]
+  resolvedBomMaterialLines ResolvedBomMaterialLine[]
+
+  @@index([bomVersionId])
+  @@index([materialCategoryId])
+  @@index([materialTypeId])
+  @@index([specificMaterialId])
+  @@index([alternateGroupId])
+  @@map("bom_material_lines")
+  @@schema("product_engineering")
+}
+
+model BomProcessLine {
+  id                    String    @id @default(uuid())
+  bomVersionId          String    @map("bom_version_id")
+  lineSequence          Int       @map("line_sequence")
+  processId             String    @map("process_id")
+  quantity              Decimal   @default(1) @db.Decimal(10, 3)
+  timePerUnitMinutes    Decimal?  @map("time_per_unit_minutes") @db.Decimal(10, 2)
+  isOutsourced          Boolean   @default(false) @map("is_outsourced")
+  outsourceVendorNotes  String?   @map("outsource_vendor_notes") @db.Text
+  estimatedCost         Decimal?  @map("estimated_cost") @db.Decimal(14, 2)
+  notes                 String?   @db.Text
+
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  bomVersion            BomVersion @relation(fields: [bomVersionId], references: [id], onDelete: Cascade)
+  process               Process    @relation(fields: [processId], references: [id], onDelete: Restrict)
+  resolvedBomProcessLines ResolvedBomProcessLine[]
+
+  @@index([bomVersionId])
+  @@index([processId])
+  @@map("bom_process_lines")
+  @@schema("product_engineering")
+}
+
+model BomSubassembly {
+  id                    String    @id @default(uuid())
+  parentBomVersionId    String    @map("parent_bom_version_id")
+  childBomId            String    @map("child_bom_id")
+  quantity              Decimal   @default(1) @db.Decimal(10, 3)
+  notes                 String?   @db.Text
+
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  parentBomVersion      BomVersion @relation(fields: [parentBomVersionId], references: [id], onDelete: Cascade)
+  childBom              Bom        @relation("ChildBom", fields: [childBomId], references: [id], onDelete: Restrict)
+
+  @@index([parentBomVersionId])
+  @@index([childBomId])
+  @@map("bom_subassemblies")
+  @@schema("product_engineering")
+}
+
+model BomChangeLog {
+  id              String    @id @default(uuid())
+  bomId           String    @map("bom_id")
+  versionId       String?   @map("version_id")
+  changeType      String    @map("change_type") // line_added | line_removed | line_modified | version_approved | version_superseded
+  changedBy       String?   @map("changed_by")
+  changedAt       DateTime  @default(now()) @map("changed_at")
+  changeDetails   Json?     @map("change_details")
+
+  bom             Bom         @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  version         BomVersion? @relation(fields: [versionId], references: [id], onDelete: SetNull)
+
+  @@index([bomId])
+  @@index([versionId])
+  @@index([changeType])
+  @@map("bom_change_log")
+  @@schema("product_engineering")
+}
+
+model SelectionList {
+  id                    String    @id @default(uuid())
+  selectionListCode     String    @unique @map("selection_list_code")
+  orderId               String    @map("order_id")
+  status                String    @default("draft") // draft | submitted | approved | applied_to_bom
+  submittedByType       String?   @map("submitted_by_type") // customer | sales_team | engineering
+  submittedByUserId     String?   @map("submitted_by_user_id")
+  submittedAt           DateTime? @map("submitted_at")
+  approvedBy            String?   @map("approved_by")
+  approvedAt            DateTime? @map("approved_at")
+  finishGroupName       String?   @map("finish_group_name")
+  notes                 String?   @db.Text
+
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  createdById           String?   @map("created_by_id")
+  updatedById           String?   @map("updated_by_id")
+  isDeleted             Boolean   @default(false) @map("is_deleted")
+  deletedAt             DateTime? @map("deleted_at")
+  deletedById           String?   @map("deleted_by_id")
+
+  order                 Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  items                 SelectionListItem[]
+  resolvedBoms          ResolvedBom[]
+
+  @@index([orderId])
+  @@index([status])
+  @@index([isDeleted])
+  @@map("selection_lists")
+  @@schema("product_engineering")
+}
+
+model SelectionListItem {
+  id                    String    @id @default(uuid())
+  selectionListId       String    @map("selection_list_id")
+  orderLineId           String?   @map("order_line_id")
+  bomMaterialLineId     String    @map("bom_material_line_id")
+  selectedMaterialId    String    @map("selected_material_id")
+  alternateChosen       Boolean   @default(false) @map("alternate_chosen")
+  quantityOverride      Decimal?  @map("quantity_override") @db.Decimal(14, 4)
+  notes                 String?   @db.Text
+
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  selectionList         SelectionList   @relation(fields: [selectionListId], references: [id], onDelete: Cascade)
+  orderLine             OrderLine?      @relation(fields: [orderLineId], references: [id], onDelete: SetNull)
+  bomMaterialLine       BomMaterialLine @relation(fields: [bomMaterialLineId], references: [id], onDelete: Restrict)
+  selectedMaterial      Material        @relation(fields: [selectedMaterialId], references: [id], onDelete: Restrict)
+
+  @@index([selectionListId])
+  @@index([orderLineId])
+  @@index([bomMaterialLineId])
+  @@index([selectedMaterialId])
+  @@map("selection_list_items")
+  @@schema("product_engineering")
+}
+
+model ResolvedBom {
+  id                           String    @id @default(uuid())
+  orderId                      String    @map("order_id")
+  orderLineId                  String    @map("order_line_id")
+  bomVersionId                 String    @map("bom_version_id")
+  selectionListId              String?   @map("selection_list_id")
+  resolvedAt                   DateTime? @map("resolved_at")
+  resolvedBy                   String?   @map("resolved_by")
+  totalTheoreticalMaterialCost Decimal?  @map("total_theoretical_material_cost") @db.Decimal(14, 2)
+  status                       String    @default("draft") // draft | approved | locked_for_production
+
+  createdAt                    DateTime  @default(now()) @map("created_at")
+  updatedAt                    DateTime  @updatedAt @map("updated_at")
+  createdById                  String?   @map("created_by_id")
+  updatedById                  String?   @map("updated_by_id")
+  isDeleted                    Boolean   @default(false) @map("is_deleted")
+  deletedAt                    DateTime? @map("deleted_at")
+  deletedById                  String?   @map("deleted_by_id")
+
+  order                        Order          @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderLine                    OrderLine      @relation(fields: [orderLineId], references: [id], onDelete: Restrict)
+  bomVersion                   BomVersion     @relation(fields: [bomVersionId], references: [id], onDelete: Restrict)
+  selectionList                SelectionList? @relation(fields: [selectionListId], references: [id], onDelete: SetNull)
+  materialLines                ResolvedBomMaterialLine[]
+  processLines                 ResolvedBomProcessLine[]
+
+  @@unique([orderId, orderLineId, bomVersionId])
+  @@index([orderId])
+  @@index([orderLineId])
+  @@index([bomVersionId])
+  @@index([selectionListId])
+  @@index([status])
+  @@index([isDeleted])
+  @@map("resolved_boms")
+  @@schema("product_engineering")
+}
+
+model ResolvedBomMaterialLine {
+  id                              String    @id @default(uuid())
+  resolvedBomId                   String    @map("resolved_bom_id")
+  bomMaterialLineId               String    @map("bom_material_line_id")
+  materialId                      String    @map("material_id")
+  quantityRequired                Decimal   @map("quantity_required") @db.Decimal(14, 4)
+  uom                             String    @default("PCS")
+  wastagePercentApplied           Decimal   @default(0) @map("wastage_percent_applied") @db.Decimal(5, 2)
+  theoreticalQuantityWithWastage  Decimal?  @map("theoretical_quantity_with_wastage") @db.Decimal(14, 4)
+  unitCostAtResolution            Decimal?  @map("unit_cost_at_resolution") @db.Decimal(14, 2)
+  lineCost                        Decimal?  @map("line_cost") @db.Decimal(14, 2)
+
+  createdAt                       DateTime  @default(now()) @map("created_at")
+  updatedAt                       DateTime  @updatedAt @map("updated_at")
+
+  resolvedBom                     ResolvedBom     @relation(fields: [resolvedBomId], references: [id], onDelete: Cascade)
+  bomMaterialLine                 BomMaterialLine @relation(fields: [bomMaterialLineId], references: [id], onDelete: Restrict)
+  material                        Material        @relation(fields: [materialId], references: [id], onDelete: Restrict)
+
+  @@index([resolvedBomId])
+  @@index([bomMaterialLineId])
+  @@index([materialId])
+  @@map("resolved_bom_material_lines")
+  @@schema("product_engineering")
+}
+
+model ResolvedBomProcessLine {
+  id                       String    @id @default(uuid())
+  resolvedBomId            String    @map("resolved_bom_id")
+  bomProcessLineId         String    @map("bom_process_line_id")
+  processId                String    @map("process_id")
+  quantity                 Decimal   @default(1) @db.Decimal(10, 3)
+  timePerUnitMinutes       Decimal?  @map("time_per_unit_minutes") @db.Decimal(10, 2)
+  costPerUnitAtResolution  Decimal?  @map("cost_per_unit_at_resolution") @db.Decimal(14, 2)
+  lineCost                 Decimal?  @map("line_cost") @db.Decimal(14, 2)
+  isOutsourced             Boolean   @default(false) @map("is_outsourced")
+  vendorNotes              String?   @map("vendor_notes") @db.Text
+
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  resolvedBom              ResolvedBom    @relation(fields: [resolvedBomId], references: [id], onDelete: Cascade)
+  bomProcessLine           BomProcessLine @relation(fields: [bomProcessLineId], references: [id], onDelete: Restrict)
+  process                  Process        @relation(fields: [processId], references: [id], onDelete: Restrict)
+
+  @@index([resolvedBomId])
+  @@index([bomProcessLineId])
+  @@index([processId])
+  @@map("resolved_bom_process_lines")
+  @@schema("product_engineering")
+}
+
+model CostingRun {
+  id                      String    @id @default(uuid())
+  bomVersionId            String    @map("bom_version_id")
+  costingRunNumber        String    @unique @map("costing_run_number")
+  runType                 String    @default("initial") @map("run_type") // initial | re_cost | what_if
+  materialCostTotal       Decimal   @default(0) @map("material_cost_total") @db.Decimal(14, 2)
+  laborCostTotal          Decimal   @default(0) @map("labor_cost_total") @db.Decimal(14, 2)
+  overheadCostTotal       Decimal   @default(0) @map("overhead_cost_total") @db.Decimal(14, 2)
+  outsourcingCostTotal    Decimal   @default(0) @map("outsourcing_cost_total") @db.Decimal(14, 2)
+  manufacturingCost       Decimal   @default(0) @map("manufacturing_cost") @db.Decimal(14, 2)
+  overheadPercentApplied  Decimal?  @map("overhead_percent_applied") @db.Decimal(5, 2)
+  marginPercentApplied    Decimal?  @map("margin_percent_applied") @db.Decimal(5, 2)
+  landingCost             Decimal?  @map("landing_cost") @db.Decimal(14, 2)
+  sellingPriceExclTax     Decimal?  @map("selling_price_excl_tax") @db.Decimal(14, 2)
+  taxRate                 Decimal?  @map("tax_rate") @db.Decimal(5, 2)
+  mrpInclTax              Decimal?  @map("mrp_incl_tax") @db.Decimal(14, 2)
+  runBy                   String?   @map("run_by")
+  runAt                   DateTime  @default(now()) @map("run_at")
+  notes                   String?   @db.Text
+
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  bomVersion              BomVersion @relation(fields: [bomVersionId], references: [id], onDelete: Restrict)
+
+  @@index([bomVersionId])
+  @@index([runType])
+  @@map("costing_runs")
+  @@schema("product_engineering")
+}
+
+model CostingAssumption {
+  id          String    @id @default(uuid())
+  key         String    @unique
+  value       String
+  validFrom   DateTime  @default(now()) @map("valid_from")
+  validUntil  DateTime? @map("valid_until")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  createdById String?   @map("created_by_id")
+  updatedById String?   @map("updated_by_id")
+
+  @@map("costing_assumptions")
+  @@schema("product_engineering")
 }

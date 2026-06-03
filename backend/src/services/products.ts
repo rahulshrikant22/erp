@@ -209,6 +209,11 @@ export async function getProduct(id: string) {
       category: { select: { id: true, categoryCode: true, name: true } },
       sizeVariants: { where: { isActive: true }, orderBy: { variantName: 'asc' } },
       tierPricing: { orderBy: { customerType: 'asc' } },
+      boms: {
+        where: { isDeleted: false },
+        select: { id: true, bomCode: true, bomName: true, status: true, currentVersion: true },
+        orderBy: { updatedAt: 'desc' },
+      },
     },
   });
   if (!product) throw new NotFoundError('Product not found');
