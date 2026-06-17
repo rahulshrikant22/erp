@@ -56,6 +56,18 @@ import resolvedBomsRouter from './resolved-boms';
 import costingRouter from './costing';
 import reportsRouter from './reports';
 import portalSelectionListsRouter from './portal-selection-lists';
+import vendorsRouter from './vendors';
+import storageRouter from './storage';
+import purchaseRequisitionsRouter from './purchase-requisitions';
+import purchaseOrdersRouter from './purchase-orders';
+import importShipmentsRouter from './import-shipments';
+import grnsRouter from './grn';
+import qualityInspectionsRouter from './quality-inspections';
+import inventoryRouter from './inventory';
+import materialRequisitionsRouter, { minRouter, mrnRouter } from './material-requisitions';
+import stockCountsRouter, { adjustmentsRouter } from './stock-counts';
+import phase3IntegrationRouter from './phase3-integration';
+import { vendorImportRouter, stockImportRouter } from './vendor-import';
 
 export function registerRoutes(app: Application): void {
   app.use('/api/auth', authRouter);
@@ -112,4 +124,24 @@ export function registerRoutes(app: Application): void {
   app.use('/api/costing', costingRouter);
   app.use('/api/reports', reportsRouter);
   app.use('/api/portal/selection-lists', portalSelectionListsRouter);
+
+  // Phase 3 — Supply Chain & Procurement
+  app.use('/api/vendors', vendorsRouter);
+  app.use('/api/storage', storageRouter);
+  app.use('/api/purchase-requisitions', purchaseRequisitionsRouter);
+  app.use('/api/purchase-orders', purchaseOrdersRouter);
+  app.use('/api/import-shipments', importShipmentsRouter);
+  app.use('/api/grns', grnsRouter);
+  app.use('/api/quality-inspections', qualityInspectionsRouter);
+  app.use('/api/inventory', inventoryRouter);
+  app.use('/api/material-requisitions', materialRequisitionsRouter);
+  app.use('/api/material-issue-notes', minRouter);
+  app.use('/api/material-return-notes', mrnRouter);
+  app.use('/api/stock-counts', stockCountsRouter);
+  app.use('/api/stock-adjustments', adjustmentsRouter);
+
+  // Phase 3 — Integration & Imports
+  app.use('/api/supply-integration', phase3IntegrationRouter);
+  app.use('/api/vendors', vendorImportRouter);
+  app.use('/api/inventory', stockImportRouter);
 }

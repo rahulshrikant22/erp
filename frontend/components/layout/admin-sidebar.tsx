@@ -29,6 +29,11 @@ import {
   Hammer,
   Calculator,
   ClipboardList,
+  Warehouse,
+  Ship,
+  PackageCheck,
+  ArrowRightLeft,
+  ClipboardCheck,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { EffectivePermissions } from '@/lib/types';
@@ -161,6 +166,66 @@ const NAV: NavGroup[] = [
         label: 'Costing',
         icon: Calculator,
         requires: ['COSTING:costing:view'],
+      },
+    ],
+  },
+  {
+    label: 'Supply Chain',
+    items: [
+      {
+        href: '/admin/vendors',
+        label: 'Vendors',
+        icon: Building2,
+      },
+      {
+        href: '/admin/storage',
+        label: 'Storage',
+        icon: Warehouse,
+      },
+      {
+        href: '/admin/purchase-requisitions',
+        label: 'Purchase Reqs',
+        icon: FileText,
+      },
+      {
+        href: '/admin/purchase-orders',
+        label: 'Purchase Orders',
+        icon: ShoppingCart,
+      },
+      {
+        href: '/admin/import-shipments',
+        label: 'Import Shipments',
+        icon: Ship,
+      },
+      {
+        href: '/admin/grns',
+        label: 'GRN',
+        icon: PackageCheck,
+      },
+      {
+        href: '/admin/quality-inspections',
+        label: 'Quality Check',
+        icon: ShieldCheck,
+      },
+      {
+        href: '/admin/inventory',
+        label: 'Inventory',
+        icon: Package,
+      },
+      {
+        href: '/admin/material-issue-notes',
+        label: 'Material Issue',
+        icon: ArrowRightLeft,
+      },
+      {
+        href: '/admin/stock-counts',
+        label: 'Stock Counts',
+        icon: ClipboardCheck,
+      },
+      {
+        href: '/admin/procurement-dashboard',
+        label: 'Procurement Dashboard',
+        icon: LayoutDashboard,
       },
     ],
   },

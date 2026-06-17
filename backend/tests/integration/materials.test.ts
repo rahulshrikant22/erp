@@ -22,7 +22,22 @@ let rawAttrs: Array<{ id: string; attributeCode: string; label: string; isRequir
 let sfAttrs: Array<{ id: string; attributeCode: string; label: string; isRequired: boolean }>;
 
 beforeAll(async () => {
-  // Clean up materials from prior test runs
+  await prisma.stockAdjustmentLine.deleteMany({});
+  await prisma.stockCountLine.deleteMany({});
+  await prisma.materialReturnNoteLine.deleteMany({});
+  await prisma.materialIssueNoteLine.deleteMany({});
+  await prisma.materialRequisitionLine.deleteMany({});
+  await prisma.reorderAlert.deleteMany({});
+  await prisma.reservation.deleteMany({});
+  await prisma.stockMovement.deleteMany({});
+  await prisma.stockBatch.deleteMany({});
+  await prisma.stock.deleteMany({});
+  await prisma.importLandedCostAllocation.deleteMany({});
+  await prisma.goodsReceiptLine.deleteMany({});
+  await prisma.qualityInspection.deleteMany({});
+  await prisma.purchaseOrderLine.deleteMany({});
+  await prisma.purchaseRequisitionLine.deleteMany({});
+  await prisma.rateContract.deleteMany({});
   await prisma.materialMaterialAttributeValue.deleteMany({});
   await prisma.materialImage.deleteMany({});
   await prisma.material.deleteMany({});
@@ -69,16 +84,26 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // Clean up test-created materials (those not created by seed)
-  await prisma.materialMaterialAttributeValue.deleteMany({
-    where: { material: { createdById: null } },
-  });
-  await prisma.materialImage.deleteMany({
-    where: { material: { createdById: null } },
-  });
-  await prisma.material.deleteMany({
-    where: { createdById: null },
-  });
+  const testMaterialFilter = { material: { createdById: null } };
+  await prisma.stockAdjustmentLine.deleteMany({ where: testMaterialFilter });
+  await prisma.stockCountLine.deleteMany({ where: testMaterialFilter });
+  await prisma.materialReturnNoteLine.deleteMany({ where: testMaterialFilter });
+  await prisma.materialIssueNoteLine.deleteMany({ where: testMaterialFilter });
+  await prisma.materialRequisitionLine.deleteMany({ where: testMaterialFilter });
+  await prisma.reorderAlert.deleteMany({ where: testMaterialFilter });
+  await prisma.reservation.deleteMany({ where: testMaterialFilter });
+  await prisma.stockMovement.deleteMany({ where: testMaterialFilter });
+  await prisma.stockBatch.deleteMany({ where: { stock: testMaterialFilter } });
+  await prisma.stock.deleteMany({ where: { material: { createdById: null } } });
+  await prisma.importLandedCostAllocation.deleteMany({ where: testMaterialFilter });
+  await prisma.goodsReceiptLine.deleteMany({ where: testMaterialFilter });
+  await prisma.qualityInspection.deleteMany({ where: testMaterialFilter });
+  await prisma.purchaseOrderLine.deleteMany({ where: testMaterialFilter });
+  await prisma.purchaseRequisitionLine.deleteMany({ where: testMaterialFilter });
+  await prisma.rateContract.deleteMany({ where: testMaterialFilter });
+  await prisma.materialMaterialAttributeValue.deleteMany({ where: testMaterialFilter });
+  await prisma.materialImage.deleteMany({ where: testMaterialFilter });
+  await prisma.material.deleteMany({ where: { createdById: null } });
   await prisma.$disconnect();
 });
 

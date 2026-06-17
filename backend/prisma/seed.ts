@@ -16,6 +16,7 @@
 import { PrismaClient } from '@prisma/client';
 import { seedMaterialMaster } from './seed-material';
 import { seedProcesses } from './seed-processes';
+import { seedPhase3 } from './seed-phase3';
 
 const prisma = new PrismaClient();
 
@@ -821,6 +822,7 @@ async function main(): Promise<void> {
   await seedMaterialMaster();
   await seedProcesses();
   await seedCostingAssumptions();
+  await seedPhase3();
   console.log('-----------------------');
   console.log('seed complete.');
 }

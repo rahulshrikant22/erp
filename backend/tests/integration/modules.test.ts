@@ -50,9 +50,9 @@ function dirty(...codes: string[]): void {
 }
 
 describe('Module service — queries', () => {
-  it('listModules returns all 36 with correct shape', async () => {
+  it('listModules returns all 44 with correct shape', async () => {
     const list = await listModules();
-    expect(list.length).toBe(36);
+    expect(list.length).toBe(44);
     expect(list.find((m) => m.moduleCode === 'AUTH')?.isCore).toBe(true);
     expect(list.find((m) => m.moduleCode === 'QC')?.isBypassable).toBe(true);
   });
@@ -188,7 +188,7 @@ describe('HTTP routes', () => {
       .get('/api/modules')
       .set('Authorization', `Bearer ${tokens.accessToken}`);
     expect(res.status).toBe(200);
-    expect(res.body.data.modules.length).toBe(36);
+    expect(res.body.data.modules.length).toBe(44);
   });
 
   it('GET /api/modules/growth-path returns stages', async () => {
