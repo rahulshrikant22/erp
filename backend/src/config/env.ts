@@ -71,6 +71,10 @@ const envSchema = z.object({
 
   // --- WhatsApp (P0-17) ---
   WHATSAPP_RATE_LIMIT_PER_HOUR: z.coerce.number().int().positive().default(10),
+
+  // --- OPS integration ---
+  OPS_WEBHOOK_URL: z.string().url().optional(),
+  OPS_WEBHOOK_SECRET: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

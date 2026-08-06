@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { ConflictError, NotFoundError, ValidationError } from '../errors';
 import { getNextNumber } from './numbering';
 import { resolvePrice, applyDiscount, calculateTax, getOrgStateCode, roundToNearestRupee } from './pricing';
+import { sendProformaToOps } from './ops-integration';
 
 // -- Order Header -------------------------------------------------------------
 
@@ -604,6 +605,8 @@ export async function confirmOrder(orderId: string, actorId: string) {
       notes: 'Order confirmed',
     },
   });
+
+  sendProformaToOps(orderId).catch(() => {});
 
   return { order: updated };
 }

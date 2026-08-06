@@ -42,6 +42,7 @@ import {
   getOrderLinesImportTemplate,
   importOrders,
 } from '../services/order-import';
+import { sendProformaToOps } from '../services/ops-integration';
 
 const router = Router();
 const VIEW   = requirePermission('ORDER', 'order', 'view');
@@ -425,6 +426,15 @@ router.post('/:id/documents/:doc_id/cancel', requireInternal, EDIT, async (req, 
     const p = parseParams(req, docIdParam);
     const body = parseBody(req, z.object({ reason: z.string().min(1) }));
     sendSuccess(res, await cancelDocument(p.doc_id, body.reason));
+  } catch (err) { next(err); }
+});
+
+// -- OPS Integration ----------------------------------------------------------
+
+router.post('/:id/send-to-ops', requireInternal, EDIT, async (req, res, next) => {
+  try {
+    const result = await sendProformaToOps(parseParams(req, idParam).id);
+    sendSuccess(res, result);
   } catch (err) { next(err); }
 });
 
